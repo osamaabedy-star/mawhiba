@@ -40,7 +40,7 @@ const BASE_CORE_QUESTIONS: Question[] = [
     code: 'MF-B01',
     title: 'إكمال تسلسل الأشكال التجريدية',
     questionText: 'أكمل الشكل الناقص لسلسلة الأشكال الآتية:',
-    imageUrl: '/src/assets/images/zigzag_pattern_1790272102102.jpg',
+    imageUrl: '/images/zigzag_pattern_1790272102102.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'شكل بـ 4 خطوط' },

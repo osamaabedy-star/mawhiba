@@ -7,7 +7,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     title: 'إكمال تسلسل الأشكال التجريدية',
     questionText: 'أكمل الشكل الناقص لسلسلة الأشكال الآتية:',
     svgGraphic: 'zigzag_pattern', // This is just a hint for the UI, but we'll use imageUrl if provided
-    imageUrl: '/src/assets/images/zigzag_pattern_1790272102102.jpg',
+    imageUrl: '/images/zigzag_pattern_1790272102102.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'شكل بـ 4 خطوط' },
@@ -32,7 +32,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'MF-B02',
     title: 'الاستدلال المنطقي الافتراضي',
     questionText: 'إذا كانت النار باردة، والصيف حار، فإن النار .......',
-    imageUrl: '/src/assets/images/cold_fire_1790272116190.jpg',
+    imageUrl: '/images/cold_fire_1790272116190.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'قبس' },
@@ -131,7 +131,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'SR-B01',
     title: 'الاستدلال بالظواهر الطبيعية',
     questionText: 'كادت الشمس تغيب، وأخشى أن يفوتنا وقت صلاة .......',
-    imageUrl: '/src/assets/images/mosque_sunset_1790272137760.jpg',
+    imageUrl: '/images/mosque_sunset_1790272137760.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'العصر' },
@@ -156,7 +156,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'SR-B02',
     title: 'الكوارث الطبيعية',
     questionText: 'أي مما يلي ليس كارثة طبيعية؟',
-    imageUrl: '/src/assets/images/disaster_collage_1790272149569.jpg',
+    imageUrl: '/images/disaster_collage_1790272149569.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'الحريق الهائل' },
@@ -181,7 +181,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'SR-B03',
     title: 'الموصلية الكهربائية',
     questionText: 'ما المادة التي تسمح للكهرباء بالمرور بين البطارية والمصباح؟',
-    imageUrl: '/src/assets/images/electrical_conduction_test_1790272926953.jpg',
+    imageUrl: '/images/electrical_conduction_test_1790272926953.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'أنبوب المطاط' },
@@ -206,7 +206,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'SR-B04',
     title: 'تصنيف الخضروات والفواكه',
     questionText: 'أي من الأشكال التالية ليست من الخضروات؟',
-    imageUrl: '/src/assets/images/vegetable_odd_one_out_1790272937823.jpg',
+    imageUrl: '/images/vegetable_odd_one_out_1790272937823.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'الخس' },
@@ -255,7 +255,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'LR-B02',
     title: 'الكلمة الشاذة (أجزاء الحيوان)',
     questionText: 'اختاري الكلمة الشاذة من بين الخيارات التالية:',
-    imageUrl: '/src/assets/images/animal_parts_puzzle_1790272948927.jpg',
+    imageUrl: '/images/animal_parts_puzzle_1790272948927.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'منقار' },
@@ -280,7 +280,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'LR-B03',
     title: 'مرادف المفردات التاريخية',
     questionText: 'اختاري المرادف للكلمة المكتوبة: ( مزولة )',
-    imageUrl: '/src/assets/images/sundial_antique_1790272958536.jpg',
+    imageUrl: '/images/sundial_antique_1790272958536.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'سجادة صلاة' },
@@ -401,7 +401,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'SR-B05',
     title: 'تتبع المسارات والاتجاهات',
     questionText: 'سار خالد باتجاه الشمال ثم أخذ اليمين ثم اليمين مرة ثانية ثم أخذ اليسار واستمر في المشي في أي جهة يكون خالد يسير بعدما أخذ اليسار؟',
-    imageUrl: '/src/assets/images/pathfinding_arrows_grid_1790272967506.jpg',
+    imageUrl: '/images/pathfinding_arrows_grid_1790272967506.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'الشمال' },
@@ -498,7 +498,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'MR-B07',
     title: 'المنطق والموازين',
     questionText: 'بالنظر إلى الموازين في الشكل، أي مما يلي يزن مثل الدائرة الواحدة؟',
-    imageUrl: '/src/assets/images/weight_balance_logic_1790273058638.jpg',
+    imageUrl: '/images/weight_balance_logic_1790273058638.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'مثلث واحد' },
@@ -523,7 +523,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'SV-B04',
     title: 'المرآة والانعكاس البصري',
     questionText: 'أي من الأشكال (أ، ب، ج، د) يمثل انعكاس الشكل الأصلي في المرآة؟',
-    imageUrl: '/src/assets/images/mirror_image_pattern_1790273045676.jpg',
+    imageUrl: '/images/mirror_image_pattern_1790273045676.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'الشكل أ' },
@@ -548,7 +548,7 @@ export const MAWHIBA_BOOK_QUESTIONS: Question[] = [
     code: 'SV-B05',
     title: 'إكمال المصفوفات المنطقية',
     questionText: 'اختر الشكل الذي يكمل المصفوفة منطقياً مكان علامة الاستفهام:',
-    imageUrl: '/src/assets/images/shape_matrix_completion_1790273078480.jpg',
+    imageUrl: '/images/shape_matrix_completion_1790273078480.jpg',
     type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'شكل بـ 3 أضلاع' },

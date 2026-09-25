@@ -78,6 +78,14 @@ export interface AppDatabaseState {
   submissions: ExamSubmission[];
 }
 
+export function fixImageUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith('/src/assets/images/')) {
+    return url.replace('/src/assets/images/', '/images/');
+  }
+  return url;
+}
+
 export function loadDatabase(): AppDatabaseState {
   try {
     const settingsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}settings`);
@@ -127,7 +135,10 @@ export function loadDatabase(): AppDatabaseState {
       }
     }
 
-    loadedQuestions = Array.from(seenMap.values());
+    loadedQuestions = Array.from(seenMap.values()).map(q => ({
+      ...q,
+      imageUrl: fixImageUrl(q.imageUrl),
+    }));
     localStorage.setItem(`${STORAGE_KEY_PREFIX}questions`, JSON.stringify(loadedQuestions));
 
     let loadedSettings: AppSettings = settingsStr ? JSON.parse(settingsStr) : INITIAL_SETTINGS;
@@ -282,7 +293,13 @@ export async function loadDatabaseFromFirestore(): Promise<AppDatabaseState | nu
 
     return {
       settings: mergedSettings,
-      questions: questionsSnap.docs.map(d => d.data() as Question),
+      questions: questionsSnap.docs.map(d => {
+        const qData = d.data() as Question;
+        return {
+          ...qData,
+          imageUrl: fixImageUrl(qData.imageUrl),
+        };
+      }),
       students: studentsSnap.docs.map(d => d.data() as Student),
       tests: testsSnap.docs.map(d => d.data() as Test),
       submissions: submissionsSnap.docs.map(d => d.data() as ExamSubmission),
