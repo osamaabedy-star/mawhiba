@@ -1,0 +1,155 @@
+{
+  "entities": {
+    "Question": {
+      "title": "Question",
+      "description": "A single question in the central bank",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "title": { "type": "string" },
+        "questionText": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "svgGraphic": { "type": "string" },
+        "type": { "type": "string" },
+        "options": { "type": "array" },
+        "correctOptionId": { "type": "string" },
+        "explanation": { "type": "string" },
+        "skill": { "type": "string" },
+        "subSkill": { "type": "string" },
+        "gradeLevels": { "type": "array" },
+        "difficulty": { "type": "string" },
+        "points": { "type": "number" },
+        "estimatedTimeSeconds": { "type": "number" },
+        "isExperimental": { "type": "boolean" },
+        "status": { "type": "string" },
+        "supervisorNotes": { "type": "string" },
+        "usageCount": { "type": "number" },
+        "correctAnswersCount": { "type": "number" }
+      },
+      "required": ["id", "code", "title", "questionText", "type", "options", "correctOptionId", "skill", "gradeLevels", "difficulty", "points", "status"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "A student registered for testing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "internalStudentId": { "type": "string" },
+        "studentNumber": { "type": "string" },
+        "nationalId": { "type": "string" },
+        "nationalIdMasked": { "type": "string" },
+        "grade": { "type": "string" },
+        "gradeLevel": { "type": "string" },
+        "classroom": { "type": "string" },
+        "gender": { "type": "string" },
+        "groupName": { "type": "string" },
+        "assignedTestId": { "type": "string" },
+        "assignedDate": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "fullName", "classroom", "status"]
+    },
+    "Test": {
+      "title": "Test",
+      "description": "An exam configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "targetGrades": { "type": "array" },
+        "level": { "type": "string" },
+        "coveredSkills": { "type": "array" },
+        "durationMinutes": { "type": "number" },
+        "pointsPerQuestion": { "type": "number" },
+        "allowBackNavigation": { "type": "boolean" },
+        "shuffleQuestions": { "type": "boolean" },
+        "shuffleOptions": { "type": "boolean" },
+        "showInstantResults": { "type": "boolean" },
+        "instructions": { "type": "string" },
+        "status": { "type": "string" },
+        "models": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "assignedStudentIds": { "type": "array" },
+        "assignedGroupNames": { "type": "array" }
+      },
+      "required": ["id", "title", "status", "models"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "A student's completed exam result",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "testId": { "type": "string" },
+        "modelId": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "timeSpentSeconds": { "type": "number" },
+        "totalScore": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "percentage": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "correctAnswersCount": { "type": "number" },
+        "wrongAnswersCount": { "type": "number" },
+        "unansweredCount": { "type": "number" },
+        "skillResults": { "type": "object" },
+        "difficultyResults": { "type": "object" },
+        "answers": { "type": "object" },
+        "candidateStatus": { "type": "string" },
+        "supervisorNotes": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewedAt": { "type": "string" },
+        "strengths": { "type": "array" },
+        "areasToDevelop": { "type": "array" },
+        "consistencyAnalysis": { "type": "object" }
+      },
+      "required": ["id", "studentId", "testId", "modelId", "totalScore", "percentage", "candidateStatus"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "App-wide configuration",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string" },
+        "platformName": { "type": "string" },
+        "supervisorName": { "type": "string" },
+        "supervisorTitle": { "type": "string" },
+        "schoolLogoUrl": { "type": "string" },
+        "primaryColor": { "type": "string" },
+        "minScoreForNomination": { "type": "number" },
+        "minHighSkillsForNomination": { "type": "number" },
+        "darkMode": { "type": "boolean" },
+        "reportDisclaimer": { "type": "string" },
+        "backupLastDate": { "type": "string" }
+      },
+      "required": ["schoolName", "platformName"]
+    }
+  },
+  "firestore": {
+    "questions/{questionId}": {
+      "schema": "Question",
+      "description": "The central question bank"
+    },
+    "students/{studentId}": {
+      "schema": "Student",
+      "description": "Registered students"
+    },
+    "tests/{testId}": {
+      "schema": "Test",
+      "description": "Exam models and configs"
+    },
+    "submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "Student exam results"
+    },
+    "settings/config": {
+      "schema": "AppSettings",
+      "description": "App configuration"
+    }
+  }
+}

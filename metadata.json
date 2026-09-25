@@ -1,0 +1,6 @@
+{
+  "name": "منصة الموهوبين",
+  "description": "منصة مدارس رياض الإبداع الأهلية لاختبارات الكشف المبدئي عن الموهوبين - إشراف أسامة إبراهيم",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

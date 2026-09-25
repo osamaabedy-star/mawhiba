@@ -1,0 +1,110 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Hardened Globals
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isSupervisor() {
+      return isEmailVerified() && request.auth.token.email == 'osamaabedy@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 2. Validation Helpers
+    function isValidQuestion(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.code is string && data.code.size() <= 50 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.questionText is string && data.questionText.size() <= 2000 &&
+             data.type is string &&
+             data.skill is string &&
+             data.difficulty is string &&
+             data.status in ['active', 'archived', 'draft'];
+    }
+
+    function isValidStudent(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.fullName is string && data.fullName.size() <= 200 &&
+             data.classroom is string && data.classroom.size() <= 50 &&
+             data.status in ['active', 'archived', 'not_started', 'in_progress', 'completed'];
+    }
+
+    function isValidTest(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.status in ['published', 'draft', 'archived'];
+    }
+
+    function isValidSubmission(data) {
+      return data.id is string && data.id.size() <= 100 &&
+             data.studentId is string &&
+             data.testId is string &&
+             data.totalScore is number &&
+             data.candidateStatus is string;
+    }
+
+    function isValidSettings(data) {
+      return data.schoolName is string && data.schoolName.size() <= 200 &&
+             data.platformName is string && data.platformName.size() <= 200;
+    }
+
+    // 3. Collection Rules
+    
+    // Questions: Read by anyone, Write by Supervisor
+    match /questions/{questionId} {
+      allow read: if true; // Publicly readable for students taking exams
+      allow create, update: if isSupervisor() && isValidQuestion(incoming());
+      allow delete: if isSupervisor();
+    }
+
+    // Students: Read/Write by Supervisor, Read by self (simulated via ID)
+    match /students/{studentId} {
+      allow read: if true; // In this app, student lookup is by name/ID, no private login yet
+      allow create, update: if isSupervisor() && isValidStudent(incoming());
+      allow delete: if isSupervisor();
+    }
+
+    // Tests: Read by anyone, Write by Supervisor
+    match /tests/{testId} {
+      allow read: if true;
+      allow create, update: if isSupervisor() && isValidTest(incoming());
+      allow delete: if isSupervisor();
+    }
+
+    // Submissions: Read by Supervisor, Create by anyone (students), Read by self (lookup)
+    match /submissions/{submissionId} {
+      allow read: if isSupervisor(); 
+      allow create: if isValidSubmission(incoming());
+      allow update: if isSupervisor() && isValidSubmission(incoming());
+      allow delete: if isSupervisor();
+    }
+
+    // Settings: Read by anyone, Write by Supervisor
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isSupervisor() && isValidSettings(incoming());
+    }
+  }
+}
