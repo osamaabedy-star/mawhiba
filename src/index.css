@@ -7,16 +7,45 @@
 }
 
 @media print {
-  .no-print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 10mm 10mm 10mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+    line-height: 1.35 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .no-print,
+  nav,
+  header,
+  footer,
+  aside,
+  button:not(.print-include) {
     display: none !important;
   }
+
   .print-only {
     display: block !important;
   }
-  body {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
+
+  /* Prevent page breaks inside cards */
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Force page break when needed */
+  .print-break-before {
+    break-before: page !important;
+    page-break-before: always !important;
   }
 }

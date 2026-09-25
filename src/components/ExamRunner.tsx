@@ -578,7 +578,9 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
                     key={student.id}
                     onClick={() => {
                       if (isCompleted) {
-                        alert('لقد أتممت الاختبار بنجاح. يرجى مراجعة مشرف الموهوبين إذا كنت ترغب في إعادة المحاولة.');
+                        if (confirm(`لقد أتم الطالب "${student.fullName}" الاختبار مسبقاً.\n\nهل ترغب في بدء إعادة الاختبار الآن؟`)) {
+                          handleDirectStartExam(student);
+                        }
                       } else {
                         handleDirectStartExam(student);
                       }

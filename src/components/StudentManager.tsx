@@ -116,7 +116,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleSaveStudent = () => {
+  const handleSaveStudent = (launchImmediately: boolean = false) => {
     if (!fullName.trim()) {
       setFormError('يرجى إدخال اسم الطالب.');
       return;
@@ -130,6 +130,9 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       return;
     }
 
+    const isPrevCompleted = editingStudent?.status === 'completed';
+    const finalStatus = launchImmediately ? 'not_started' : (editingStudent ? editingStudent.status : 'not_started');
+
     const savedStudent: Student = {
       id: editingStudent ? editingStudent.id : `stu_${Date.now()}`,
       fullName: fullName.trim(),
@@ -141,16 +144,24 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       gradeLevel: gradeLevel,
       classroom: classroom.trim() || '1/أ',
       assignedTestId: assignedTestId || undefined,
-      status: editingStudent ? editingStudent.status : 'not_started',
+      status: finalStatus,
       gender: 'male',
     };
 
     if (editingStudent) {
+      if (launchImmediately && isPrevCompleted && onResetStudentTest) {
+        onResetStudentTest(editingStudent.id);
+      }
       onUpdateStudent(savedStudent);
     } else {
       onAddStudent(savedStudent);
     }
     setIsModalOpen(false);
+
+    if (launchImmediately) {
+      const targetTestId = assignedTestId || tests[0]?.id || '';
+      onLaunchExamForStudent(savedStudent, targetTestId);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -427,44 +438,60 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                                 onLaunchExamForStudent(student, assignedTest?.id || '');
                               }
                             }}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer ${
                               isCompleted
-                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
-                                : 'bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 hover:bg-sky-100'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                                : 'bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-300 dark:border-sky-800 hover:bg-sky-100'
                             }`}
-                            title={isCompleted ? 'انقر لإعادة الاختبار لهذا الطالب' : 'بدء الاختبار لهذا الطالب'}
+                            title={isCompleted ? 'إعادة الاختبار لهذا الطالب' : 'بدء الاختبار لهذا الطالب'}
                           >
                             {isCompleted ? <RotateCcw className="w-3.5 h-3.5" /> : <PlayCircle className="w-3.5 h-3.5" />}
-                            <span>{isCompleted ? 'إعادة الاختبار' : (assignedTest ? assignedTest.title : 'بدء الاختبار')}</span>
+                            <span>{isCompleted ? 'اختباره مرة أخرى' : (assignedTest ? assignedTest.title : 'بدء الاختبار')}</span>
                           </button>
                         </div>
                       </td>
 
                       {/* 7. الإجراءات */}
                       <td className="px-5 py-3.5 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {isCompleted && (
-                            <button
-                              onClick={() => setStudentToReset(student)}
-                              className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                              title="إعادة تعيين الحالة (فتح الاختبار مجدداً)"
-                            >
-                              <RotateCcw className="w-4 h-4" />
-                            </button>
-                          )}
+                        <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => openEditModal(student)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                            title="تعديل بيانات الطالب"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 border border-amber-200 dark:border-amber-800/60 font-bold text-[11px] transition-colors cursor-pointer"
+                            title="تعديل بيانات الطالب واختباره"
                           >
-                            <Edit3 className="w-4 h-4" />
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>تعديل</span>
                           </button>
+
                           <button
-                            onClick={() => onDeleteStudent(student.id)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                            onClick={() => {
+                              if (isCompleted) {
+                                setStudentToReset(student);
+                              } else {
+                                onLaunchExamForStudent(student, assignedTest?.id || '');
+                              }
+                            }}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-[11px] border transition-colors cursor-pointer ${
+                              isCompleted
+                                ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 border-emerald-200'
+                                : 'text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 hover:bg-sky-100 border-sky-200'
+                            }`}
+                            title={isCompleted ? 'إعادة اختبار الطالب' : 'اختبار الطالب الآن'}
+                          >
+                            {isCompleted ? <RotateCcw className="w-3.5 h-3.5" /> : <PlayCircle className="w-3.5 h-3.5" />}
+                            <span>{isCompleted ? 'إعادة' : 'اختبار'}</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              if (confirm(`هل أنت متأكد من حذف الطالب ${student.fullName}؟`)) {
+                                onDeleteStudent(student.id);
+                              }
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                             title="حذف الطالب"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -591,20 +618,35 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold cursor-pointer"
+                className="w-full sm:w-auto px-4 py-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold cursor-pointer"
               >
                 إلغاء
               </button>
-              <button
-                onClick={handleSaveStudent}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold cursor-pointer"
-              >
-                <Save className="w-4 h-4" />
-                <span>حفظ البيانات</span>
-              </button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => handleSaveStudent(false)}
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold cursor-pointer transition-colors"
+                >
+                  <Save className="w-4 h-4 text-sky-600" />
+                  <span>حفظ البيانات</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveStudent(true)}
+                  className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 cursor-pointer transition-colors"
+                  title="حفظ التعديلات وتشغيل الاختبار لهذا الطالب مباشرة"
+                >
+                  <PlayCircle className="w-4 h-4" />
+                  <span>{editingStudent?.status === 'completed' ? 'حفظ وإعادة الاختبار فوراً' : 'حفظ واختبار الطالب الآن'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -685,14 +727,15 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               <p>• يُفتح الاختبار فوراً ليتمكن الطالب من أداء محاولة جديدة بأسئلة متنوعة ومتوازنة.</p>
             </div>
 
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setStudentToReset(null)}
-                className="w-1/2 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer transition-colors"
+                className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer transition-colors"
               >
                 إلغاء
               </button>
+
               <button
                 type="button"
                 onClick={() => {
@@ -701,13 +744,31 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   } else {
                     onUpdateStudent({ ...studentToReset, status: 'not_started' });
                   }
-                  setFeedbackToast(`تمت إعادة تعيين حالة الطالب "${studentToReset.fullName}" بنجاح، ويمكنه الآن بدء الاختبار مجدداً.`);
+                  setFeedbackToast(`تم فتح الاختبار للطالب "${studentToReset.fullName}" بنجاح، ويمكنه التقدم للاختبار الآن.`);
                   setStudentToReset(null);
                   setTimeout(() => setFeedbackToast(null), 5000);
                 }}
-                className="w-1/2 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-600/20 cursor-pointer transition-colors"
+                className="w-full sm:flex-1 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl cursor-pointer transition-colors text-center"
               >
-                تأكيد وفتح الاختبار
+                فتح الاختبار فقط
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onResetStudentTest) {
+                    onResetStudentTest(studentToReset.id);
+                  }
+                  const updatedStudent: Student = { ...studentToReset, status: 'not_started' };
+                  onUpdateStudent(updatedStudent);
+                  const targetTest = tests.find(t => t.id === studentToReset.assignedTestId) || tests[0];
+                  setStudentToReset(null);
+                  onLaunchExamForStudent(updatedStudent, targetTest?.id || '');
+                }}
+                className="w-full sm:flex-1 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-600/20 cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+              >
+                <PlayCircle className="w-4 h-4" />
+                <span>بدء إعادة الاختبار فوراً</span>
               </button>
             </div>
           </div>
