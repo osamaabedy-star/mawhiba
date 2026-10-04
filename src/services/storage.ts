@@ -265,11 +265,7 @@ export function saveDatabase(data: AppDatabaseState): void {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}students`, JSON.stringify(data.students));
     localStorage.setItem(`${STORAGE_KEY_PREFIX}submissions`, JSON.stringify(data.submissions));
     
-    // Asynchronously try to sync to Firestore if user is supervisor
-    const isSupervisor = auth.currentUser?.email === 'osamaabedy@gmail.com';
-    if (isSupervisor) {
-      syncDatabaseToFirestore(data).catch(err => console.warn('Background sync failed:', err));
-    }
+    // Cloud sync is now handled atomically in App.tsx handlers for better reliability
   } catch (error) {
     console.error('Failed to save to localStorage:', error);
   }
@@ -289,46 +285,72 @@ function sanitizeForFirestore(obj: any): any {
   return sanitized;
 }
 
+export async function saveToFirestore(collectionName: string, id: string, data: any): Promise<void> {
+  const isSupervisor = auth.currentUser?.email === 'osamaabedy@gmail.com';
+  if (!isSupervisor && collectionName !== 'submissions') return; // Students can create submissions
+
+  try {
+    await setDoc(doc(db, collectionName, id), sanitizeForFirestore(data));
+    console.log(`Saved to Firestore: ${collectionName}/${id}`);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `${collectionName}/${id}`);
+  }
+}
+
+export async function removeFromFirestore(collectionName: string, id: string): Promise<void> {
+  const isSupervisor = auth.currentUser?.email === 'osamaabedy@gmail.com';
+  if (!isSupervisor) return;
+
+  try {
+    await deleteDoc(doc(db, collectionName, id));
+    console.log(`Deleted from Firestore: ${collectionName}/${id}`);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `${collectionName}/${id}`);
+  }
+}
+
 export async function syncDatabaseToFirestore(data: AppDatabaseState): Promise<void> {
   const isSupervisor = auth.currentUser?.email === 'osamaabedy@gmail.com';
   if (!isSupervisor) return;
 
   try {
-    const batch = writeBatch(db);
-    
-    // Settings
-    batch.set(doc(db, 'settings', 'config'), sanitizeForFirestore(data.settings));
-    
-    // Questions (sync changed or all)
-    data.questions.forEach(q => {
-      batch.set(doc(db, 'questions', q.id), sanitizeForFirestore(q));
-    });
-    
-    // Students
-    data.students.forEach(s => {
-      batch.set(doc(db, 'students', s.id), sanitizeForFirestore(s));
-    });
-    
-    // Tests
-    data.tests.forEach(t => {
-      batch.set(doc(db, 'tests', t.id), sanitizeForFirestore(t));
-    });
-    
-    // Explicitly delete any deleted tests from Firestore to prevent resurrection
+    // Note: This is a heavy operation. Use atomic updates where possible.
+    // We'll use multiple batches if needed (Firestore limit is 500 per batch)
+    const items: { coll: string, id: string, data: any }[] = [
+      { coll: 'settings', id: 'config', data: data.settings },
+      ...data.questions.map(q => ({ coll: 'questions', id: q.id, data: q })),
+      ...data.students.map(s => ({ coll: 'students', id: s.id, data: s })),
+      ...data.tests.map(t => ({ coll: 'tests', id: t.id, data: t })),
+      ...data.submissions.map(sub => ({ coll: 'submissions', id: sub.id, data: sub })),
+    ];
+
+    // Delete deleted tests
     const deletedTestIds = getDeletedTestIds();
-    deletedTestIds.forEach(delId => {
-      batch.delete(doc(db, 'tests', delId));
-    });
+    const deleteItems = Array.from(deletedTestIds).map(id => ({ coll: 'tests', id }));
 
-    // Submissions
-    data.submissions.forEach(sub => {
-      batch.set(doc(db, 'submissions', sub.id), sanitizeForFirestore(sub));
-    });
+    const allOps = [
+      ...items.map(item => ({ type: 'set', ...item })),
+      ...deleteItems.map(item => ({ type: 'delete', ...item }))
+    ];
 
-    await batch.commit();
-    console.log('Database synced to Firestore successfully.');
+    // Chunk into 400 (safe margin below 500)
+    for (let i = 0; i < allOps.length; i += 400) {
+      const chunk = allOps.slice(i, i + 400);
+      const batch = writeBatch(db);
+      chunk.forEach(op => {
+        const ref = doc(db, op.coll, op.id);
+        if (op.type === 'set' && 'data' in op) {
+          batch.set(ref, sanitizeForFirestore(op.data));
+        } else if (op.type === 'delete') {
+          batch.delete(ref);
+        }
+      });
+      await batch.commit();
+    }
+    
+    console.log('Database fully synced to Firestore.');
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, 'all_collections');
+    handleFirestoreError(error, OperationType.WRITE, 'all_collections_batch');
   }
 }
 
@@ -340,7 +362,10 @@ export async function loadDatabaseFromFirestore(): Promise<AppDatabaseState | nu
     const submissionsSnap = await getDocs(collection(db, 'submissions'));
     const settingsSnap = await getDoc(doc(db, 'settings', 'config'));
 
-    if (questionsSnap.empty && studentsSnap.empty) return null;
+    if (questionsSnap.empty && studentsSnap.empty && testsSnap.empty && submissionsSnap.empty && !settingsSnap.exists()) {
+      console.log('Firestore is empty or not accessible.');
+      return null;
+    }
 
     const settingsData = settingsSnap.exists() ? settingsSnap.data() as AppSettings : INITIAL_SETTINGS;
     const mergedSettings = {

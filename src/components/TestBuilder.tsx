@@ -167,7 +167,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
   const [testToDelete, setTestToDelete] = useState<Test | null>(null);
   const [previewTest, setPreviewTest] = useState<{ test: Test; model: TestModel } | null>(null);
   const [previewMinimalist, setPreviewMinimalist] = useState(false);
-  const [modalTab, setModalTab] = useState<'edit' | 'preview_sheet'>('preview_sheet');
+  const [modalTab, setModalTab] = useState<'edit' | 'preview_sheet' | 'print_preview'>('preview_sheet');
   const [quickEditQId, setQuickEditQId] = useState<string | null>(null);
   const [quickEditForm, setQuickEditForm] = useState<{
     questionText: string;
@@ -210,6 +210,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
   const [paperCoordinatorName, setPaperCoordinatorName] = useState<string>('');
   const [hasOrderChanged, setHasOrderChanged] = useState<boolean>(false);
   const [showAnswersInPrint, setShowAnswersInPrint] = useState<boolean>(false);
+  const [ensureEvenPages, setEnsureEvenPages] = useState<boolean>(true);
   const [finalSaveToast, setFinalSaveToast] = useState<string | null>(null);
   const [testSearchByCode, setTestSearchByCode] = useState<string>('');
 
@@ -912,11 +913,63 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
   };
 
   const handlePrintBooklet = () => {
+    // Robust Print logic: Try direct print, then fallback to new window, then fallback to HTML download
+    const printContent = document.getElementById('printable-test-booklet');
+    if (!printContent) {
+      alert('حدث خطأ: لم يتم العثور على محتوى الاختبار للطباعة.');
+      return;
+    }
+
     try {
+      // 1. Try normal print
       window.print();
     } catch (e) {
-      console.warn('Direct print blocked in iframe sandbox, downloading HTML', e);
-      handleDownloadHtmlFile();
+      console.warn('Standard window.print failed, trying isolated window approach...', e);
+      
+      // 2. Fallback: Open in new window for clean print context
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        const testTitle = previewTest?.test.title || 'اختبار';
+        const styles = Array.from(document.styleSheets)
+          .map(styleSheet => {
+            try {
+              return Array.from(styleSheet.cssRules)
+                .map(rule => rule.cssText)
+                .join('');
+            } catch (e) {
+              return '';
+            }
+          })
+          .join('\n');
+
+        printWindow.document.write(`
+          <html lang="ar" dir="rtl">
+            <head>
+              <title>${testTitle}</title>
+              <style>${styles}</style>
+              <style>
+                body { background: white !important; padding: 0 !important; margin: 0 !important; }
+                .print-only { display: block !important; }
+                .no-print { display: none !important; }
+              </style>
+            </head>
+            <body>
+              <div class="print-only">${printContent.innerHTML}</div>
+              <script>
+                window.onload = () => {
+                  setTimeout(() => {
+                    window.print();
+                  }, 700);
+                };
+              </script>
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      } else {
+        // 3. Last resort: HTML Download
+        handleDownloadHtmlFile();
+      }
     }
   };
 
@@ -1365,6 +1418,46 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
               </div>
             </div>
 
+            {/* TAB NAVIGATION */}
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl w-fit no-print">
+              <button
+                type="button"
+                onClick={() => setModalTab('preview_sheet')}
+                className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                  modalTab === 'preview_sheet'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Eye className="w-4 h-4" />
+                <span>معاينة الورقة الذكية</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('print_preview')}
+                className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                  modalTab === 'print_preview'
+                    ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Layout className="w-4 h-4" />
+                <span>معاينة الطباعة A4</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('edit')}
+                className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                  modalTab === 'edit'
+                    ? 'bg-white dark:bg-slate-900 text-sky-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Edit3 className="w-4 h-4" />
+                <span>تحرير الترتيب والأسئلة</span>
+              </button>
+            </div>
+
             {/* Final Save Toast or Order Changed Alert */}
             {finalSaveToast && (
               <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 rounded-2xl text-xs font-black text-emerald-900 dark:text-emerald-200 flex items-center gap-2 animate-in fade-in">
@@ -1778,7 +1871,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                         </select>
                       </div>
 
-                      <div className="flex items-center pt-5">
+                      <div className="flex items-center pt-5 gap-4">
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
@@ -1787,7 +1880,18 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                             className="w-4 h-4 rounded text-sky-600 accent-sky-600"
                           />
                           <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                            عرض تعليمات الاختبار بأعلى الورقة
+                            عرض تعليمات الاختبار
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={ensureEvenPages}
+                            onChange={e => setEnsureEvenPages(e.target.checked)}
+                            className="w-4 h-4 rounded text-sky-600 accent-sky-600"
+                          />
+                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                            ضمان صفحات زوجية (وجه وظهر)
                           </span>
                         </label>
                       </div>
@@ -1874,7 +1978,126 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
               </div>
             )}
 
-            {/* Simulated A4 Paper (Live Screen Preview) */}
+            {/* PRINT PREVIEW TAB: LIVE A4 PAGINATION */}
+            {modalTab === 'print_preview' && (
+              <div className="bg-slate-100 dark:bg-slate-950 p-4 sm:p-8 overflow-y-auto custom-scrollbar flex-1 min-h-0 no-print" dir="rtl">
+                <div className="max-w-[210mm] mx-auto space-y-8">
+                  <div className="flex items-center justify-between mb-4 text-slate-600 dark:text-slate-400">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+                      <span className="text-sm font-black">معاينة حية دقيقة لنظام صفحات A4</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                       <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
+                         {ensureEvenPages ? '✓ وضع الطباعة المزدوجة (وجه وظهر) مفعل' : 'وضع الطباعة العادية'}
+                       </span>
+                    </div>
+                  </div>
+
+                  {/* Simulated Paginated View for Current Preview Student */}
+                  <div 
+                    className="space-y-12"
+                    style={{
+                      fontFamily: getFontFamilyCss(paperFontFamily),
+                    }}
+                  >
+                    {[0, 1].map((pageIdx) => (
+                      <div key={pageIdx} className="space-y-6">
+                        <div className="bg-white text-black shadow-2xl mx-auto w-full min-h-[297mm] p-[12mm] relative border border-slate-300 rounded-sm flex flex-col overflow-hidden">
+                           {/* Page Content Simulator */}
+                           {pageIdx === 0 ? (
+                             <>
+                               {/* Header */}
+                               <div className="border-b-2 border-black pb-3 mb-6">
+                                 <div className="flex items-center justify-between gap-3">
+                                   <div className="text-right text-[10px] font-bold leading-tight">
+                                     <div>المملكة العربية السعودية</div>
+                                     <div>وزارة التعليم</div>
+                                     <div className="font-black text-[11px] mt-1">{settings?.schoolName}</div>
+                                   </div>
+                                   <div className="text-center flex-1">
+                                     <div className="text-[16px] font-black">{previewTest.test.title}</div>
+                                     <div className="text-[10px] font-bold text-slate-500 mt-1">كود الاختبار: #{paperTestCode}</div>
+                                   </div>
+                                   <div className="text-left text-[10px] leading-tight font-bold">
+                                     <div>الزمن: {previewTest.test.durationMinutes} دقيقة</div>
+                                     <div>الأسئلة: {displayStructure.reduce((acc, g) => acc + g.questions.length, 0)}</div>
+                                     <div>المستوى: {paperStudentLevel}</div>
+                                   </div>
+                                 </div>
+                                 
+                                 <div className="mt-4 pt-2 border-t border-black/20 flex items-center justify-between text-[12px] font-black bg-slate-50 px-3 py-2 rounded">
+                                   <span>اسم الطالب: {currentPreviewStudent?.fullName || paperStudentName || '................................................'}</span>
+                                   <span>الصف: {currentPreviewStudent?.grade ? GRADE_LABELS[currentPreviewStudent.grade as GradeLevel] : (paperStudentGrade || '................')}</span>
+                                 </div>
+                               </div>
+
+                               {/* Simulated Questions on Page 1 */}
+                               <div className={previewMinimalist ? 'grid grid-cols-2 gap-4' : 'space-y-4'}>
+                                 {displayStructure[0].questions.slice(0, previewMinimalist ? 8 : 4).map((q, idx) => (
+                                   <div key={q.id} className="border-2 border-slate-300 rounded-xl p-3 bg-white">
+                                      <div className="flex items-center justify-between mb-2 border-b border-slate-100 pb-1">
+                                        <span className="bg-black text-white px-2.5 py-0.5 rounded text-[10px] font-black">سؤال {idx + 1}</span>
+                                        <span className="text-[9px] opacity-40 font-mono">#{q.code}</span>
+                                      </div>
+                                      <p className="font-bold mb-3 leading-relaxed text-[14px]">{q.questionText}</p>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {q.options.slice(0, 4).map((opt, oIdx) => (
+                                          <div key={opt.id} className={`border border-slate-200 rounded-lg p-2 flex items-center gap-2 ${showAnswersInPrint && opt.id === q.correctOptionId ? 'bg-emerald-50 border-emerald-500 ring-1 ring-emerald-500/20' : ''}`}>
+                                            <OptionLetterBubble letter={['أ', 'ب', 'ج', 'د'][oIdx]} size={18} fontSize={10} />
+                                            <span className="text-[11px] font-bold truncate">{opt.text}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                   </div>
+                                 ))}
+                               </div>
+                               
+                               <div className="mt-auto pt-8 flex flex-col items-center">
+                                  <div className="h-px w-32 bg-slate-200 mb-2"></div>
+                                  <div className="text-[10px] text-slate-400 italic">يتبع في الصفحة التالية...</div>
+                               </div>
+                             </>
+                           ) : (
+                             <div className="flex-1 flex flex-col items-center justify-center border-4 border-dashed border-slate-50 rounded-[3rem]">
+                                <Printer className="w-20 h-20 text-slate-100 mb-6" />
+                                <div className="text-3xl font-black text-slate-200 mb-2">بقية الأسئلة...</div>
+                                <p className="text-slate-300 font-bold">يتم توزيع {displayStructure.reduce((acc, g) => acc + g.questions.length, 0)} سؤالاً على الصفحات تلقائياً</p>
+                             </div>
+                           )}
+
+                           {/* Footer - Page Numbering */}
+                           <div className="mt-auto pt-4 border-t border-slate-200 flex justify-between items-center text-[10px] font-black text-slate-400">
+                             <div className="flex items-center gap-1">
+                               <SchoolLogo className="w-4 h-4 opacity-30" />
+                               <span>{settings?.schoolName}</span>
+                             </div>
+                             <div className="bg-slate-50 px-6 py-1.5 rounded-full border border-slate-200 text-slate-600">صفحة رقم {pageIdx + 1}</div>
+                             <span>منصة الإبداع لرعاية الموهوبين</span>
+                           </div>
+                        </div>
+
+                        {/* Visual Break with Even Page Logic Indicator */}
+                        {pageIdx === 1 && ensureEvenPages && (
+                           <div className="space-y-4">
+                             <div className="h-px bg-slate-300 dark:bg-slate-800 w-full relative my-8">
+                               <div className="absolute left-1/2 -translate-x-1/2 -top-4 bg-amber-50 dark:bg-amber-950 px-6 py-2 rounded-full border-2 border-amber-200 dark:border-amber-800 text-[10px] font-black text-amber-700 dark:text-amber-300 flex items-center gap-2 shadow-sm">
+                                 <AlertCircle className="w-4 h-4" />
+                                 <span>سيتم إضافة ورقة بيضاء هنا إذا كان إجمالي الصفحات فردياً (للطباعة وجه وظهر)</span>
+                               </div>
+                             </div>
+                             <div className="bg-slate-50/50 dark:bg-slate-900/50 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center opacity-40">
+                                <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                <div className="text-xl font-black text-slate-300">ورقة بيضاء محتملة</div>
+                             </div>
+                           </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             <div 
               className="p-6 sm:p-8 bg-white text-black rounded-2xl border-2 border-slate-300 shadow-xl max-w-3xl mx-auto space-y-3.5" 
               dir="rtl"
@@ -2330,6 +2553,16 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                 </div>
 
                 <div className="mt-2 text-center text-[8px] font-mono text-slate-400">ID: {previewTest.model.id.slice(-8).toUpperCase()} | Page {sIdx + 1}</div>
+
+                {/* Even Page Logic: Add a blank page if this student's booklet ends on an odd page */}
+                {ensureEvenPages && (
+                  <div className="print-only blank-page no-screen">
+                    <div className="flex flex-col items-center gap-2">
+                       <FileText className="w-12 h-12 text-slate-100 mb-2" />
+                       <span>ورقة بيضاء (للطباعة وجه وظهر)</span>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

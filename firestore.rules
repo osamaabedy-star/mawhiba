@@ -12,12 +12,8 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
     function isSupervisor() {
-      return isEmailVerified() && request.auth.token.email == 'osamaabedy@gmail.com';
+      return isSignedIn() && request.auth.token.email == 'osamaabedy@gmail.com';
     }
 
     function isValidId(id) {

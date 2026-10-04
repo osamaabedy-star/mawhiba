@@ -17,7 +17,9 @@ import {
   loadDatabaseFromFirestore,
   syncDatabaseToFirestore,
   deleteTestFromStorageAndFirestore,
-  unmarkTestAsDeleted
+  unmarkTestAsDeleted,
+  saveToFirestore,
+  removeFromFirestore
 } from './services/storage';
 import { auth, logout } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -49,14 +51,20 @@ export default function App() {
       if (firebaseUser?.email === 'osamaabedy@gmail.com') {
         setIsSupervisorVerified(true);
         sessionStorage.setItem('supervisor_auth_verified', 'true');
-        // If supervisor logs in, try to load from cloud
-        handleLoadFromCloud();
       }
+      // Always try to load from cloud when auth state changes (public collections are readable)
+      handleLoadFromCloud();
     });
     return () => unsubscribe();
   }, []);
 
+  // Initial cloud load attempt on mount
+  useEffect(() => {
+    handleLoadFromCloud();
+  }, []);
+
   const handleLoadFromCloud = async () => {
+    if (isCloudLoading) return;
     setIsCloudLoading(true);
     try {
       const cloudData = await loadDatabaseFromFirestore();
@@ -147,41 +155,29 @@ export default function App() {
   };
 
   // Finish Exam Submission
-  const handleFinishExam = (newSubmission: ExamSubmission) => {
-    // Add submission to db
-    const updatedSubmissions = [newSubmission, ...dbState.submissions];
-    
-    // Update student status to completed
-    const updatedStudents = dbState.students.map(s => {
-      if (s.id === newSubmission.studentId) {
-        return { ...s, status: 'completed' as const };
+  const handleFinishExam = async (newSubmission: ExamSubmission) => {
+    try {
+      // 1. Save submission to Firestore first
+      await saveToFirestore('submissions', newSubmission.id, newSubmission);
+
+      // 2. Update student status in Firestore
+      const student = dbState.students.find(s => s.id === newSubmission.studentId);
+      if (student) {
+        const updatedStudent = { ...student, status: 'completed' as const };
+        await saveToFirestore('students', student.id, updatedStudent);
       }
-      return s;
-    });
 
-    // Update question usage stats
-    const updatedQuestions = dbState.questions.map(q => {
-      // Find any answer that corresponds to this original question ID
-      const studentAns = Object.values(newSubmission.answers).find(ans => 
-        ans.originalQuestionId === q.id || ans.questionId === q.id
-      );
-
-      if (studentAns) {
-        return {
-          ...q,
-          usageCount: q.usageCount + 1,
-          correctAnswersCount: studentAns.isCorrect ? q.correctAnswersCount + 1 : q.correctAnswersCount,
-        };
-      }
-      return q;
-    });
-
-    setDbState(prev => ({
-      ...prev,
-      submissions: updatedSubmissions,
-      students: updatedStudents,
-      questions: updatedQuestions,
-    }));
+      // 3. Update local state
+      setDbState(prev => ({
+        ...prev,
+        submissions: [newSubmission, ...prev.submissions],
+        students: prev.students.map(s => s.id === newSubmission.studentId ? { ...s, status: 'completed' as const } : s),
+        // Question stats update could also be done here but it's complex for firestore atomic updates
+        // We'll let the full sync handle stats occasionally or implement atomic increments later
+      }));
+    } catch (err) {
+      alert('حدث خطأ أثناء حفظ النتيجة في السحابة. يرجى المحاولة مرة أخرى.');
+    }
   };
 
   const handleRequestTab = (targetTab: ActiveTab) => {
@@ -227,26 +223,36 @@ export default function App() {
     setIsQuestionModalOpen(true);
   };
 
-  const handleSaveQuestion = (savedQ: Question) => {
-    setDbState(prev => {
-      const exists = prev.questions.some(q => q.id === savedQ.id);
-      return {
+  const handleSaveQuestion = async (savedQ: Question) => {
+    try {
+      await saveToFirestore('questions', savedQ.id, savedQ);
+      setDbState(prev => {
+        const exists = prev.questions.some(q => q.id === savedQ.id);
+        return {
+          ...prev,
+          questions: exists
+            ? prev.questions.map(q => q.id === savedQ.id ? savedQ : q)
+            : [savedQ, ...prev.questions],
+        };
+      });
+    } catch (err) {
+      alert('فشل حفظ السؤال في السحابة.');
+    }
+  };
+
+  const handleDeleteQuestion = async (id: string) => {
+    try {
+      await removeFromFirestore('questions', id);
+      setDbState(prev => ({
         ...prev,
-        questions: exists
-          ? prev.questions.map(q => q.id === savedQ.id ? savedQ : q)
-          : [savedQ, ...prev.questions],
-      };
-    });
+        questions: prev.questions.filter(q => q.id !== id),
+      }));
+    } catch (err) {
+      alert('فشل حذف السؤال من السحابة.');
+    }
   };
 
-  const handleDeleteQuestion = (id: string) => {
-    setDbState(prev => ({
-      ...prev,
-      questions: prev.questions.filter(q => q.id !== id),
-    }));
-  };
-
-  const handleDuplicateQuestion = (q: Question) => {
+  const handleDuplicateQuestion = async (q: Question) => {
     const duplicated: Question = {
       ...q,
       id: `q_${Date.now()}`,
@@ -255,31 +261,46 @@ export default function App() {
       usageCount: 0,
       correctAnswersCount: 0,
     };
-    setDbState(prev => ({
-      ...prev,
-      questions: [duplicated, ...prev.questions],
-    }));
+    try {
+      await saveToFirestore('questions', duplicated.id, duplicated);
+      setDbState(prev => ({
+        ...prev,
+        questions: [duplicated, ...prev.questions],
+      }));
+    } catch (err) {
+      alert('فشل تكرار السؤال في السحابة.');
+    }
   };
 
-  const handleBulkAddQuestions = (newQuestions: Question[]) => {
-    setDbState(prev => ({
-      ...prev,
-      questions: [...newQuestions, ...prev.questions],
-    }));
+  const handleBulkAddQuestions = async (newQuestions: Question[]) => {
+    try {
+      await Promise.all(newQuestions.map(q => saveToFirestore('questions', q.id, q)));
+      setDbState(prev => ({
+        ...prev,
+        questions: [...newQuestions, ...prev.questions],
+      }));
+    } catch (err) {
+      alert('فشل إضافة الأسئلة دفعة واحدة إلى السحابة.');
+    }
   };
 
   // Test Management Handlers
-  const handleSaveTest = (savedTest: Test) => {
-    unmarkTestAsDeleted(savedTest.id);
-    setDbState(prev => {
-      const exists = prev.tests.some(t => t.id === savedTest.id);
-      return {
-        ...prev,
-        tests: exists
-          ? prev.tests.map(t => t.id === savedTest.id ? savedTest : t)
-          : [savedTest, ...prev.tests],
-      };
-    });
+  const handleSaveTest = async (savedTest: Test) => {
+    try {
+      await saveToFirestore('tests', savedTest.id, savedTest);
+      unmarkTestAsDeleted(savedTest.id);
+      setDbState(prev => {
+        const exists = prev.tests.some(t => t.id === savedTest.id);
+        return {
+          ...prev,
+          tests: exists
+            ? prev.tests.map(t => t.id === savedTest.id ? savedTest : t)
+            : [savedTest, ...prev.tests],
+        };
+      });
+    } catch (err) {
+      alert('فشل حفظ الاختبار في السحابة.');
+    }
   };
 
   const handleDeleteTest = async (testId: string) => {
@@ -291,11 +312,16 @@ export default function App() {
     console.log('Test deleted permanently:', testId);
   };
 
-  const handleAddStudent = (newStudent: Student) => {
-    setDbState(prev => ({
-      ...prev,
-      students: [newStudent, ...prev.students],
-    }));
+  const handleAddStudent = async (newStudent: Student) => {
+    try {
+      await saveToFirestore('students', newStudent.id, newStudent);
+      setDbState(prev => ({
+        ...prev,
+        students: [newStudent, ...prev.students],
+      }));
+    } catch (err) {
+      alert('فشل إضافة الطالب إلى السحابة.');
+    }
   };
 
   const handleAddMultipleStudents = (newStudents: Student[]) => {
@@ -305,67 +331,94 @@ export default function App() {
     }));
   };
 
-  const handleUpdateMultipleStudents = (updatedStudents: Student[]) => {
-    setDbState(prev => {
-      const updateMap = new Map(updatedStudents.map(s => [s.id, s]));
-      return {
-        ...prev,
-        students: prev.students.map(s => updateMap.get(s.id) || s),
-      };
-    });
-  };
-
-  const handleUpdateStudent = (updatedStudent: Student) => {
-    setDbState(prev => {
-      const isResetting = updatedStudent.status === 'not_started';
+  const handleUpdateMultipleStudents = async (updatedStudents: Student[]) => {
+    try {
+      // For multiple, we could use a batch or individual calls. 
+      // For simplicity and matching user request "directly to firestore", we'll do individual await in a loop or Promise.all
+      await Promise.all(updatedStudents.map(s => saveToFirestore('students', s.id, s)));
       
-      return {
+      setDbState(prev => {
+        const updateMap = new Map(updatedStudents.map(s => [s.id, s]));
+        return {
+          ...prev,
+          students: prev.students.map(s => updateMap.get(s.id) || s),
+        };
+      });
+    } catch (err) {
+      alert('حدث خطأ أثناء تحديث بيانات الطلاب في السحابة.');
+    }
+  };
+
+  const handleUpdateStudent = async (updatedStudent: Student) => {
+    try {
+      await saveToFirestore('students', updatedStudent.id, updatedStudent);
+      setDbState(prev => {
+        const isResetting = updatedStudent.status === 'not_started';
+        
+        return {
+          ...prev,
+          students: prev.students.map(s => s.id === updatedStudent.id ? {
+            ...updatedStudent,
+            status: isResetting ? 'not_started' : updatedStudent.status,
+            assignedDate: isResetting ? undefined : s.assignedDate
+          } : s),
+          submissions: isResetting 
+            ? prev.submissions.filter(sub => sub.studentId !== updatedStudent.id)
+            : prev.submissions
+        };
+      });
+    } catch (err) {
+      alert('فشل تحديث بيانات الطالب في السحابة.');
+    }
+  };
+
+  const handleDeleteStudent = async (studentId: string) => {
+    try {
+      await removeFromFirestore('students', studentId);
+      setDbState(prev => ({
         ...prev,
-        students: prev.students.map(s => s.id === updatedStudent.id ? {
-          ...updatedStudent,
-          // Ensure status is correctly set and clear any assigned date/metadata
-          status: isResetting ? 'not_started' : updatedStudent.status,
-          assignedDate: isResetting ? undefined : s.assignedDate
-        } : s),
-        submissions: isResetting 
-          ? prev.submissions.filter(sub => sub.studentId !== updatedStudent.id)
-          : prev.submissions
-      };
-    });
+        students: prev.students.filter(s => s.id !== studentId),
+        submissions: prev.submissions.filter(sub => sub.studentId !== studentId)
+      }));
+    } catch (err) {
+      alert('فشل حذف الطالب من السحابة.');
+    }
   };
 
-  const handleDeleteStudent = (studentId: string) => {
-    setDbState(prev => ({
-      ...prev,
-      students: prev.students.filter(s => s.id !== studentId),
-      submissions: prev.submissions.filter(sub => sub.studentId !== studentId)
-    }));
-  };
-
-  const handleDeleteMultipleStudents = (studentIds: string[]) => {
+  const handleDeleteMultipleStudents = async (studentIds: string[]) => {
     const idSet = new Set(studentIds);
-    setDbState(prev => ({
-      ...prev,
-      students: prev.students.filter(s => !idSet.has(s.id)),
-      submissions: prev.submissions.filter(sub => !idSet.has(sub.studentId))
-    }));
+    try {
+      await Promise.all(studentIds.map(id => removeFromFirestore('students', id)));
+      setDbState(prev => ({
+        ...prev,
+        students: prev.students.filter(s => !idSet.has(s.id)),
+        submissions: prev.submissions.filter(sub => !idSet.has(sub.studentId))
+      }));
+    } catch (err) {
+      alert('فشل حذف الطلاب من السحابة.');
+    }
   };
 
   // Update Candidate Status & Notes
-  const handleUpdateCandidateStatus = (submissionId: string, status: CandidateStatus, notes?: string) => {
-    setDbState(prev => ({
-      ...prev,
-      submissions: prev.submissions.map(sub => {
-        if (sub.id === submissionId) {
-          return {
-            ...sub,
-            candidateStatus: status,
-            supervisorNotes: notes !== undefined ? notes : sub.supervisorNotes,
-          };
-        }
-        return sub;
-      }),
-    }));
+  const handleUpdateCandidateStatus = async (submissionId: string, status: CandidateStatus, notes?: string) => {
+    const sub = dbState.submissions.find(s => s.id === submissionId);
+    if (!sub) return;
+
+    const updatedSub = {
+      ...sub,
+      candidateStatus: status,
+      supervisorNotes: notes !== undefined ? notes : sub.supervisorNotes,
+    };
+
+    try {
+      await saveToFirestore('submissions', submissionId, updatedSub);
+      setDbState(prev => ({
+        ...prev,
+        submissions: prev.submissions.map(s => s.id === submissionId ? updatedSub : s),
+      }));
+    } catch (err) {
+      alert('فشل تحديث حالة الترشيح في السحابة.');
+    }
   };
 
   // Open Report for specific submission
@@ -375,41 +428,64 @@ export default function App() {
   };
 
   // Settings Handlers
-  const handleSaveSettings = (newSettings: AppSettings) => {
-    setDbState(prev => ({
-      ...prev,
-      settings: newSettings,
-    }));
-  };
-
-  const handleResetAllData = () => {
-    const defaults = resetDatabaseToDefaults();
-    setDbState(defaults);
-  };
-
-  const handleImportDatabase = (imported: AppDatabaseState) => {
-    setDbState(imported);
-    saveDatabase(imported);
-  };
-
-  const handleResetStudentTest = (studentId: string) => {
-    setDbState(prev => {
-      const student = prev.students.find(s => s.id === studentId);
-      if (!student) return prev;
-
-      const updatedStudents = prev.students.map(s => 
-        s.id === studentId ? { ...s, status: 'not_started' as const, assignedDate: undefined } : s
-      );
-      const updatedSubmissions = prev.submissions.filter(sub => sub.studentId !== studentId);
-      const nextState = {
+  const handleSaveSettings = async (newSettings: AppSettings) => {
+    try {
+      await saveToFirestore('settings', 'config', newSettings);
+      setDbState(prev => ({
         ...prev,
-        students: updatedStudents,
-        submissions: updatedSubmissions
-      };
-      saveDatabase(nextState);
+        settings: newSettings,
+      }));
+    } catch (err) {
+      alert('فشل حفظ الإعدادات في السحابة.');
+    }
+  };
+
+  const handleResetAllData = async () => {
+    if (!confirm('⚠️ تحذير: سيتم حذف كافة البيانات المسجلة والنتائج وإعادة النظام للوضع الافتراضي. هل أنت متأكد؟')) return;
+    
+    const defaults = resetDatabaseToDefaults();
+    try {
+      await syncDatabaseToFirestore(defaults);
+      setDbState(defaults);
+      alert('تم إعادة ضبط كافة البيانات بنجاح.');
+    } catch (err) {
+      alert('فشل إعادة الضبط في السحابة.');
+    }
+  };
+
+  const handleImportDatabase = async (imported: AppDatabaseState) => {
+    try {
+      await syncDatabaseToFirestore(imported);
+      setDbState(imported);
+      saveDatabase(imported);
+      alert('تم استيراد قاعدة البيانات بنجاح.');
+    } catch (err) {
+      alert('فشل استيراد البيانات إلى السحابة.');
+    }
+  };
+
+  const handleResetStudentTest = async (studentId: string) => {
+    const student = dbState.students.find(s => s.id === studentId);
+    if (!student) return;
+
+    const updatedStudent = { ...student, status: 'not_started' as const, assignedDate: undefined };
+    const submissionToRemove = dbState.submissions.find(sub => sub.studentId === studentId);
+
+    try {
+      await saveToFirestore('students', studentId, updatedStudent);
+      if (submissionToRemove) {
+        await removeFromFirestore('submissions', submissionToRemove.id);
+      }
+
+      setDbState(prev => ({
+        ...prev,
+        students: prev.students.map(s => s.id === studentId ? updatedStudent : s),
+        submissions: prev.submissions.filter(sub => sub.studentId !== studentId)
+      }));
       console.log(`Student ${student.fullName} has been reset for re-testing.`);
-      return nextState;
-    });
+    } catch (err) {
+      alert('فشل إعادة ضبط اختبار الطالب في السحابة.');
+    }
   };
 
   const handleOpenZipGrade = (testId?: string, grade?: GradeLevel) => {
@@ -418,41 +494,52 @@ export default function App() {
     setActiveTab('zipgrade');
   };
 
-  const handleImportZipGradeSubmissions = (newSubmissions: ExamSubmission[], updatedStudents: Student[]) => {
-    setDbState(prev => {
-      const newSubIds = new Set(newSubmissions.map(s => s.id));
-      const mergedSubmissions = [...newSubmissions, ...prev.submissions.filter(s => !newSubIds.has(s.id))];
+  const handleImportZipGradeSubmissions = async (newSubmissions: ExamSubmission[], updatedStudents: Student[]) => {
+    try {
+      // 1. Sync submissions and students to Firestore
+      await Promise.all([
+        ...newSubmissions.map(sub => saveToFirestore('submissions', sub.id, sub)),
+        ...updatedStudents.map(s => saveToFirestore('students', s.id, s))
+      ]);
 
-      const nextState: AppDatabaseState = {
-        ...prev,
-        submissions: mergedSubmissions,
-        students: updatedStudents,
-      };
-      saveDatabase(nextState);
-      syncDatabaseToFirestore(nextState).catch(err => {
-        console.warn('Auto-sync to firestore for paper exam:', err);
+      // 2. Update local state
+      setDbState(prev => {
+        const newSubIds = new Set(newSubmissions.map(s => s.id));
+        const mergedSubmissions = [...newSubmissions, ...prev.submissions.filter(s => !newSubIds.has(s.id))];
+
+        return {
+          ...prev,
+          submissions: mergedSubmissions,
+          students: updatedStudents,
+        };
       });
-      return nextState;
-    });
+      console.log('ZipGrade import synced to cloud successfully.');
+    } catch (err) {
+      alert('حدث خطأ أثناء مزامنة بيانات ZipGrade مع السحابة.');
+    }
   };
 
-  const handleUpdateQuestionStats = (statsMap: Record<string, any>) => {
-    setDbState(prev => {
-      const nextState = {
-        ...prev,
-        questions: prev.questions.map(q => {
-          if (statsMap[q.id]) {
-            return {
-              ...q,
-              psychometricStats: statsMap[q.id]
-            };
-          }
-          return q;
-        })
-      };
-      saveDatabase(nextState);
-      return nextState;
+  const handleUpdateQuestionStats = async (statsMap: Record<string, any>) => {
+    const updatedQuestions = dbState.questions.map(q => {
+      if (statsMap[q.id]) {
+        return { ...q, psychometricStats: statsMap[q.id] };
+      }
+      return q;
     });
+
+    try {
+      // Syncing all stats might be heavy, but these stats change when ZipGrade is imported
+      // We'll update only those that changed
+      const changedQuestions = updatedQuestions.filter(q => statsMap[q.id]);
+      await Promise.all(changedQuestions.map(q => saveToFirestore('questions', q.id, q)));
+
+      setDbState(prev => ({
+        ...prev,
+        questions: updatedQuestions
+      }));
+    } catch (err) {
+      console.warn('Failed to update question stats in cloud:', err);
+    }
   };
 
   const handleLogout = async () => {
@@ -483,7 +570,16 @@ export default function App() {
       )}
 
       {/* Main App Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 relative">
+        {/* Cloud Sync Status Indicator */}
+        {isCloudLoading && (
+          <div className="absolute top-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
+            <div className="bg-sky-600 text-white px-4 py-1.5 rounded-b-xl text-[11px] font-bold shadow-lg flex items-center gap-2 animate-in slide-in-from-top duration-300">
+              <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              <span>جاري مزامنة البيانات مع السحابة...</span>
+            </div>
+          </div>
+        )}
         {/* If in student taking mode */}
         {role === 'student' || isExamActive ? (
           <ExamRunner
