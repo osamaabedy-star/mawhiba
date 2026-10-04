@@ -97,7 +97,6 @@ export const TEST_LEVEL_LABELS: Record<TestLevel, { label: string; desc: string 
 
 export type QuestionType = 
   | 'multiple_choice_4' 
-  | 'multiple_choice_3' 
   | 'image_choice' 
   | 'pattern_completion' 
   | 'true_false' 
@@ -132,6 +131,24 @@ export interface Question {
   supervisorNotes?: string;
   usageCount: number;
   correctAnswersCount: number;
+  psychometricStats?: PsychometricStats;
+  originalQuestionId?: string; // ID of original question for consistency / random check
+  isConsistencyCheck?: boolean; // True if this question was inserted to check answer consistency
+}
+
+export interface PsychometricStats {
+  difficultyIndex: number; // 0 to 1 (Percentage of students who answered correctly)
+  discriminationIndex: number; // -1 to 1 (How well the question distinguishes between high and low performers)
+  pointBiserial?: number;
+  distractorAnalysis: Record<string, number>; // How many students picked each option (e.g., {"A": 10, "B": 2})
+  sampleSize: number;
+  lastCalculatedAt: string;
+}
+
+export interface TestSection {
+  id: string;
+  title: string;
+  questionIds: string[];
 }
 
 export interface TestModel {
@@ -139,10 +156,12 @@ export interface TestModel {
   name: string; // e.g. النموذج الأول
   code: string; // e.g. M-1
   questionIds: string[];
+  sections?: TestSection[];
 }
 
 export interface Test {
   id: string;
+  code?: string; // e.g. TEST-01
   title: string;
   description: string;
   targetGrades: GradeLevel[];
@@ -307,6 +326,7 @@ export interface AppSettings {
   minHighSkillsForNomination: number; // default 2
   darkMode: boolean;
   reportDisclaimer: string;
+  principalName?: string;
   questionCounts: Record<GradeLevel, number>;
   backupLastDate?: string;
 }

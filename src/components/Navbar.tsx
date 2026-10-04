@@ -14,7 +14,8 @@ import {
   UserCheck,
   Home,
   LogOut,
-  Cloud
+  Cloud,
+  FileCheck
 } from 'lucide-react';
 import { SchoolLogo } from './SchoolLogo';
 
@@ -24,6 +25,7 @@ export type ActiveTab =
   | 'students'
   | 'question_bank' 
   | 'test_builder' 
+  | 'zipgrade'
   | 'results' 
   | 'nominations'
   | 'reports' 
@@ -54,15 +56,17 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onSync,
 }) => {
-  const navTabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
+  const navTabs: { id: ActiveTab; label: string; icon: React.ReactNode; isNew?: boolean }[] = [
     { id: 'dashboard', label: 'الرئيسية', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'students', label: 'الطلاب', icon: <Users className="w-4 h-4" /> },
     { id: 'question_bank', label: 'بنك الأسئلة', icon: <HelpCircle className="w-4 h-4" /> },
     { id: 'test_builder', label: 'الاختبارات', icon: <Layers className="w-4 h-4" /> },
+    { id: 'zipgrade', label: 'رفع وتحليل درجات الطلاب', icon: <FileCheck className="w-4 h-4" /> },
     { id: 'results', label: 'النتائج', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'reports', label: 'التقارير', icon: <FileText className="w-4 h-4" /> },
     { id: 'settings', label: 'الإعدادات', icon: <Settings className="w-4 h-4" /> },
   ];
+
 
   return (
     <header className="sticky top-0 z-40 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 no-print transition-colors">
@@ -155,6 +159,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   {tab.icon}
                   <span>{tab.label}</span>
+                  {tab.isNew && (
+                    <span className="text-[9px] font-black bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 px-1.5 py-0.2 rounded-full border border-indigo-200 dark:border-indigo-800">
+                      جديد
+                    </span>
+                  )}
                 </button>
               );
             })}

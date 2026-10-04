@@ -86,6 +86,55 @@ export function fixImageUrl(url?: string): string | undefined {
   return url;
 }
 
+export function getDeletedTestIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}deleted_test_ids`);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function markTestAsDeleted(testId: string): void {
+  try {
+    const ids = getDeletedTestIds();
+    ids.add(testId);
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}deleted_test_ids`, JSON.stringify(Array.from(ids)));
+  } catch (e) {
+    console.warn('Failed to mark test as deleted in localStorage', e);
+  }
+}
+
+export function unmarkTestAsDeleted(testId: string): void {
+  try {
+    const ids = getDeletedTestIds();
+    if (ids.has(testId)) {
+      ids.delete(testId);
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}deleted_test_ids`, JSON.stringify(Array.from(ids)));
+    }
+  } catch (e) {
+    console.warn('Failed to unmark test as deleted in localStorage', e);
+  }
+}
+
+export async function deleteTestFromStorageAndFirestore(testId: string): Promise<void> {
+  markTestAsDeleted(testId);
+  try {
+    // 1. Remove from localStorage
+    const testsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}tests`);
+    if (testsStr) {
+      const tests: Test[] = JSON.parse(testsStr);
+      const filtered = tests.filter(t => t.id !== testId);
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}tests`, JSON.stringify(filtered));
+    }
+    // 2. Permanently delete document from Firestore so it never returns on refresh
+    await deleteDoc(doc(db, 'tests', testId));
+    console.log(`Test ${testId} permanently removed from Firestore and localStorage.`);
+  } catch (err) {
+    console.warn(`Firestore delete failed for test ${testId}:`, err);
+  }
+}
+
 export function loadDatabase(): AppDatabaseState {
   try {
     const settingsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}settings`);
@@ -167,8 +216,14 @@ export function loadDatabase(): AppDatabaseState {
       }
     }
 
+    // Check permanently deleted test IDs to prevent deleted tests from returning on reload
+    const deletedTestIds = getDeletedTestIds();
+
     // Sync tests models from INITIAL_TESTS to ensure calibrated question selections
     let loadedTests: Test[] = testsStr ? JSON.parse(testsStr) : INITIAL_TESTS;
+    // Always exclude any test that was deleted by the user
+    loadedTests = loadedTests.filter(t => !deletedTestIds.has(t.id));
+    
     const initialTestMap = new Map<string, Test>(INITIAL_TESTS.map(t => [t.id, t]));
     loadedTests = loadedTests.map(t => {
       const init = initialTestMap.get(t.id);
@@ -259,6 +314,12 @@ export async function syncDatabaseToFirestore(data: AppDatabaseState): Promise<v
       batch.set(doc(db, 'tests', t.id), sanitizeForFirestore(t));
     });
     
+    // Explicitly delete any deleted tests from Firestore to prevent resurrection
+    const deletedTestIds = getDeletedTestIds();
+    deletedTestIds.forEach(delId => {
+      batch.delete(doc(db, 'tests', delId));
+    });
+
     // Submissions
     data.submissions.forEach(sub => {
       batch.set(doc(db, 'submissions', sub.id), sanitizeForFirestore(sub));
@@ -291,6 +352,8 @@ export async function loadDatabaseFromFirestore(): Promise<AppDatabaseState | nu
       }
     };
 
+    const deletedTestIds = getDeletedTestIds();
+
     return {
       settings: mergedSettings,
       questions: questionsSnap.docs.map(d => {
@@ -301,7 +364,9 @@ export async function loadDatabaseFromFirestore(): Promise<AppDatabaseState | nu
         };
       }),
       students: studentsSnap.docs.map(d => d.data() as Student),
-      tests: testsSnap.docs.map(d => d.data() as Test),
+      tests: testsSnap.docs
+        .map(d => d.data() as Test)
+        .filter(t => !deletedTestIds.has(t.id)),
       submissions: submissionsSnap.docs.map(d => d.data() as ExamSubmission),
     };
   } catch (error) {

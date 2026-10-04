@@ -21,6 +21,7 @@ export const INITIAL_SETTINGS: AppSettings = {
   minHighSkillsForNomination: 2,
   darkMode: false,
   reportDisclaimer: 'تنبيه مهني: نتائج هذه المنصة تمثل مؤشرًا أوليًا للأداء والاستعدادات الكامنة للتعرف المبدئي، ولا تعد مقياسًا رسميًا لنسبة الذكاء (IQ) أو تشخيصًا نهائيًا للموهبة. يتطلب الترشيح النهائي استكمال أدوات التحقق المقننة والملاحظة السلوكية المعتمدة من قبل مشرف الموهوبين.',
+  principalName: 'أ. ماجد بن سعد الخثعمي',
   questionCounts: {
     g3_primary: 30,
     g4_primary: 30,
@@ -245,11 +246,12 @@ const BASE_CORE_QUESTIONS: Question[] = [
     code: 'MR-301',
     title: 'مقارنة كمية بديهية للصغار',
     questionText: 'لدى خالد 5 علب أقلام، في كل علبة 4 أقلام. ولدى فيصل 3 علب، في كل علبة 7 أقلام. من يمتلك أقلاماً أكثر وبكم؟',
-    type: 'multiple_choice_3',
+    type: 'multiple_choice_4',
     options: [
       { id: 'opt_1', text: 'فيصل يمتلك أكثر بقلم واحد' },
       { id: 'opt_2', text: 'خالد يمتلك أكثر بقلمين' },
       { id: 'opt_3', text: 'كلاهما يمتلكان نفس العدد تماماً' },
+      { id: 'opt_4', text: 'خالد يمتلك أكثر بقلم واحد' },
     ],
     correctOptionId: 'opt_1',
     explanation: 'خالد: 5 × 4 = 20 قلماً. فيصل: 3 × 7 = 21 قلماً. إذاً فيصل يمتلك أكثر بقلم واحد (21 - 20 = 1).',

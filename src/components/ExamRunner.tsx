@@ -131,10 +131,28 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
   const currentQ = examQuestions[currentQuestionIndex];
 
   const prepareExamQuestions = (student: Student | null): Question[] => {
-    // If a specific model was pre-selected (e.g. from Test Builder), respect its manual questions
-    if (preselectedModelId && activeModel && activeModel.questionIds.length > 0) {
-      return activeModel.questionIds
-        .map(id => questions.find(q => q.id === id))
+    // If a specific model was pre-selected or active with defined questions, respect its questions
+    const chosenModel = activeModel;
+    if (chosenModel && chosenModel.questionIds.length > 0) {
+      const seenIds = new Set<string>();
+      return chosenModel.questionIds
+        .map((id, idx) => {
+          const found = questions.find(q => q.id === id);
+          if (!found) return undefined;
+          if (seenIds.has(found.id)) {
+            // Distinct instance ID for repeated consistency check questions
+            const repInstanceId = `inst2_rep_${found.originalQuestionId || found.id}_${idx}`;
+            return {
+              ...found,
+              id: repInstanceId,
+              originalQuestionId: found.originalQuestionId || found.id,
+              isConsistencyCheck: true,
+              options: [...found.options].sort(() => Math.random() - 0.5),
+            };
+          }
+          seenIds.add(found.id);
+          return found;
+        })
         .filter((q): q is Question => q !== undefined);
     }
 
@@ -159,8 +177,12 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
         setSelectedGrade(sGrade);
         setSelectedStage(sGrade.includes('middle') ? 'middle' : 'primary');
         
-        // Find best matching test for this grade
-        const matchingTest = tests.find(t => t.targetGrades.includes(sGrade));
+        // Find best matching test for this grade and classroom
+        const matchingTest = tests.find(t => {
+          const matchesGrade = t.targetGrades.includes(sGrade);
+          const matchesClassroom = !t.assignedGroupNames || t.assignedGroupNames.length === 0 || t.assignedGroupNames.includes(currentStudent.classroom);
+          return matchesGrade && matchesClassroom;
+        });
         if (matchingTest) {
           setSelectedTestId(matchingTest.id);
           setSelectedModelId(matchingTest.models[0]?.id || '');
@@ -267,7 +289,19 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
   const handleDirectStartExam = (student: Student) => {
     setActiveStudent(student);
     const sGrade = (student.grade as GradeLevel) || (student.gradeLevel as GradeLevel) || selectedGrade;
-    if (sGrade) setSelectedGrade(sGrade);
+    if (sGrade) {
+      setSelectedGrade(sGrade);
+      // Find matching test for this student based on grade AND classroom
+      const matchingTest = tests.find(t => {
+        const matchesGrade = t.targetGrades.includes(sGrade);
+        const matchesClassroom = !t.assignedGroupNames || t.assignedGroupNames.length === 0 || t.assignedGroupNames.includes(student.classroom);
+        return matchesGrade && matchesClassroom;
+      });
+      if (matchingTest) {
+        setSelectedTestId(matchingTest.id);
+        setSelectedModelId(matchingTest.models[0]?.id || '');
+      }
+    }
 
     const preparedQuestions = prepareExamQuestions(student);
     if (!preparedQuestions || preparedQuestions.length === 0) {
@@ -1039,7 +1073,7 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
                       : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 hover:border-slate-300 dark:hover:border-slate-600 text-slate-800 dark:text-slate-200 hover:bg-slate-50/50'
                   }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <span className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 transition-colors ${
                       isSelected
                         ? 'bg-sky-600 text-white'
@@ -1047,9 +1081,21 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
                     }`}>
                       {letter}
                     </span>
-                    <span className="text-xs sm:text-sm font-semibold truncate leading-tight">
-                      {opt.text}
-                    </span>
+                    {opt.text && (
+                      <span className="text-xs sm:text-sm font-semibold truncate leading-tight flex-1">
+                        {opt.text}
+                      </span>
+                    )}
+                    {opt.imageUrl && (
+                      <div className="mr-auto shrink-0 flex items-center">
+                        <img 
+                          src={opt.imageUrl} 
+                          alt={`خيار ${letter}`}
+                          referrerPolicy="no-referrer"
+                          className="h-10 sm:h-12 max-w-[80px] object-contain rounded-lg border border-slate-200 bg-white" 
+                        />
+                      </div>
+                    )}
                     {opt.svgShape && (
                       <div className="mr-1 shrink-0">
                         <VisualShape type={opt.svgShape} size={32} />

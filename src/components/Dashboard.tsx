@@ -44,191 +44,188 @@ export const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const totalStudents = students.length;
   const totalTests = tests.length;
-  const totalModels = tests.reduce((acc, t) => acc + (t.models ? t.models.length : 1), 0);
   const totalResults = submissions.length;
 
+  // Filter for candidates (nominated)
+  const nominatedSubmissions = submissions
+    .filter(s => s.percentage >= (settings.minScoreForNomination || 60) || s.candidateStatus === 'nominated_preliminary')
+    .sort((a, b) => b.percentage - a.percentage);
+
   return (
-    <div className="space-y-6">
-      {/* عنوان الصفحة البسيط */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700">
-        <div>
-          <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
-            لوحة المشرف
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            {settings.schoolName} • {settings.supervisorTitle}: {settings.supervisorName}
-          </p>
-          <div className="mt-1 text-[11px] font-bold text-sky-600 dark:text-sky-400">
-            منسق الموهوبين أسامة ابراهيم
+    <div className="space-y-4">
+      {/* عنوان الصفحة الصغير والمختصر */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 px-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-sky-50 dark:bg-sky-900/30 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-6 h-6 text-sky-600" />
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-          <ShieldCheck className="w-4 h-4" />
-          <span>نظام الكشف المبدئي نشط</span>
-        </div>
-      </div>
-
-      {/* البطاقات الأربع الصغيرة مع إحصاءات مختصرة */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* 1. بطاقة الطلاب */}
-        <div 
-          onClick={() => setActiveTab('students')}
-          className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-sky-500 dark:hover:border-sky-500 transition-all cursor-pointer group shadow-xs"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-400">الطلاب</span>
-            <div className="w-8 h-8 rounded-lg bg-sky-50 dark:bg-sky-950 text-sky-600 dark:text-sky-400 flex items-center justify-center">
-              <Users className="w-4 h-4" />
+          <div>
+            <h2 className="text-base font-black text-slate-900 dark:text-white leading-tight">
+              لوحة التحكم والمتابعة
+            </h2>
+            <div className="text-[10px] text-slate-500 font-bold">
+              {settings.supervisorName} • منسق الموهوبين
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-slate-900 dark:text-white mb-1">
-            {totalStudents}
-          </div>
-          <div className="text-[11px] text-slate-400 flex items-center gap-1 group-hover:text-sky-600">
-            <span>إدارة الطلاب المسجلين</span>
-            <ArrowLeft className="w-3 h-3" />
-          </div>
         </div>
 
-        {/* 2. بطاقة الاختبارات */}
-        <div 
-          onClick={() => setActiveTab('test_builder')}
-          className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-sky-500 dark:hover:border-sky-500 transition-all cursor-pointer group shadow-xs"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-400">الاختبارات</span>
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-              <Layers className="w-4 h-4" />
+        <div className="flex items-center gap-4">
+          {/* إحصاءات سريعة جداً (Mini Stats Row) */}
+          <div className="flex items-center gap-4 px-4 py-1.5 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-800">
+            <div className="text-center cursor-pointer" onClick={() => setActiveTab('students')}>
+              <div className="text-[10px] text-slate-400 font-bold">الطلاب</div>
+              <div className="text-sm font-black text-slate-900 dark:text-white">{totalStudents}</div>
+            </div>
+            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700"></div>
+            <div className="text-center cursor-pointer" onClick={() => setActiveTab('test_builder')}>
+              <div className="text-[10px] text-slate-400 font-bold">الاختبارات</div>
+              <div className="text-sm font-black text-slate-900 dark:text-white">{totalTests}</div>
+            </div>
+            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700"></div>
+            <div className="text-center cursor-pointer" onClick={() => setActiveTab('results')}>
+              <div className="text-[10px] text-slate-400 font-bold">النتائج</div>
+              <div className="text-sm font-black text-slate-900 dark:text-white">{totalResults}</div>
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-slate-900 dark:text-white mb-1">
-            {totalTests}
-          </div>
-          <div className="text-[11px] text-slate-400 flex items-center gap-1 group-hover:text-indigo-600">
-            <span>الاختبارات المخصصة للطلاب</span>
-            <ArrowLeft className="w-3 h-3" />
-          </div>
-        </div>
 
-        {/* 3. بطاقة النماذج */}
-        <div 
-          onClick={() => setActiveTab('question_bank')}
-          className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-sky-500 dark:hover:border-sky-500 transition-all cursor-pointer group shadow-xs"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-400">النماذج</span>
-            <div className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-950 text-teal-600 dark:text-teal-400 flex items-center justify-center">
-              <FileSpreadsheet className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-extrabold text-slate-900 dark:text-white mb-1">
-            {totalModels}
-          </div>
-          <div className="text-[11px] text-slate-400 flex items-center gap-1 group-hover:text-teal-600">
-            <span>نماذج الأسئلة المقننة ({questions.length} سؤال)</span>
-            <ArrowLeft className="w-3 h-3" />
-          </div>
-        </div>
-
-        {/* 4. بطاقة النتائج */}
-        <div 
-          onClick={() => setActiveTab('results')}
-          className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-sky-500 dark:hover:border-sky-500 transition-all cursor-pointer group shadow-xs"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-400">النتائج</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-              <Award className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-extrabold text-slate-900 dark:text-white mb-1">
-            {totalResults}
-          </div>
-          <div className="text-[11px] text-slate-400 flex items-center gap-1 group-hover:text-emerald-600">
-            <span>الاختبارات المكتملة</span>
-            <ArrowLeft className="w-3 h-3" />
-          </div>
-        </div>
-      </div>
-
-      {/* جدول النتائج الأخيرة المختصر */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-            أحدث نتائج الاختبارات
-          </h3>
-          <button
-            onClick={() => setActiveTab('results')}
-            className="text-xs font-bold text-sky-600 hover:text-sky-700 cursor-pointer flex items-center gap-1"
+          <button 
+            onClick={() => setActiveTab('students')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold transition-all shadow-sm shadow-sky-600/20 cursor-pointer"
           >
-            <span>عرض كافة النتائج</span>
-            <ArrowLeft className="w-3 h-3" />
+            <span>دخول سريع للنظام</span>
+            <ArrowLeft className="w-3.5 h-3.5" />
           </button>
         </div>
-
-        {submissions.length === 0 ? (
-          <div className="text-center py-8 text-xs text-slate-400">
-            لا توجد اختبارات مكتملة حتى الآن.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-100 dark:border-slate-700">
-                <tr>
-                  <th className="px-4 py-3">الطالب</th>
-                  <th className="px-4 py-3">الاختبار</th>
-                  <th className="px-4 py-3">النسبة المئوية</th>
-                  <th className="px-4 py-3">الحالة المبدئية</th>
-                  <th className="px-4 py-3 text-center">الإجراء</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                {submissions.slice(0, 5).map(sub => {
-                  const student = students.find(s => s.id === sub.studentId);
-                  const test = tests.find(t => t.id === sub.testId);
-                  const statusInfo = CANDIDATE_STATUS_INFO[sub.candidateStatus];
-                  return (
-                    <tr key={sub.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-750">
-                      <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
-                        {student?.fullName || 'طالب'}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                        {test?.title || 'اختبار الكشف'}
-                      </td>
-                      <td className="px-4 py-3 font-mono font-bold text-sky-700 dark:text-sky-400">
-                        {sub.percentage}%
-                      </td>
-                      <td className="px-4 py-3">
-                        <span 
-                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold inline-block border ${statusInfo?.badgeClass || 'bg-slate-100 text-slate-700'}`}
-                        >
-                          {statusInfo?.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => {
-                            onSelectSubmissionForReview(sub.id);
-                            setActiveTab('reports');
-                          }}
-                          className="p-1 rounded-md text-slate-500 hover:text-sky-600 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
-                          title="عرض التقرير"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
-      {/* التنويه المعتمد الهادئ في الأسفل */}
-      <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3 text-[11px] text-slate-500 dark:text-slate-400 text-center">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* العمود الأيمن: قائمة المرشحين (الأهم) */}
+        <div className="lg:col-span-8 space-y-4">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-emerald-200 dark:border-emerald-900/50 overflow-hidden shadow-sm">
+            <div className="bg-emerald-50/50 dark:bg-emerald-950/20 px-4 py-3 border-b border-emerald-100 dark:border-emerald-900/30 flex items-center justify-between">
+              <h3 className="text-sm font-black text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                <Award className="w-4 h-4" />
+                <span>قائمة الطلاب المرشحين (الموهوبين)</span>
+              </h3>
+              <button
+                onClick={() => setActiveTab('nominations')}
+                className="text-[11px] font-bold text-emerald-600 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <span>إدارة الترشيحات</span>
+                <ArrowLeft className="w-3 h-3" />
+              </button>
+            </div>
+
+            <div className="p-0">
+              {nominatedSubmissions.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-xs text-slate-400 font-bold">لا يوجد مرشحون حالياً (أقل من {settings.minScoreForNomination}%)</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-50/50 dark:bg-slate-900/40 text-slate-500 font-bold border-b border-slate-100 dark:border-slate-800">
+                      <tr>
+                        <th className="px-4 py-2">اسم الطالب</th>
+                        <th className="px-4 py-2">الفصل</th>
+                        <th className="px-4 py-2 text-center">الدرجة</th>
+                        <th className="px-4 py-2 text-center">الحالة</th>
+                        <th className="px-4 py-2 text-center">تقرير</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                      {nominatedSubmissions.slice(0, 10).map(sub => {
+                        const student = students.find(s => s.id === sub.studentId);
+                        const statusInfo = CANDIDATE_STATUS_INFO[sub.candidateStatus];
+                        return (
+                          <tr key={sub.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-900/10 transition-colors">
+                            <td className="px-4 py-2.5 font-bold text-slate-900 dark:text-white">
+                              {student?.fullName}
+                            </td>
+                            <td className="px-4 py-2.5 text-slate-500 font-medium">
+                              {student?.classroom}
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <span className="font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-md">
+                                {sub.percentage}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusInfo?.badgeClass}`}>
+                                {statusInfo?.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <button
+                                onClick={() => {
+                                  onSelectSubmissionForReview(sub.id);
+                                  setActiveTab('reports');
+                                }}
+                                className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 hover:text-sky-600 transition-colors cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* العمود الأيسر: أحدث النتائج العامة */}
+        <div className="lg:col-span-4 space-y-4">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-black text-slate-700 dark:text-white">أحدث النتائج</h3>
+              <button 
+                onClick={() => setActiveTab('results')}
+                className="text-[10px] font-bold text-sky-600 hover:underline cursor-pointer"
+              >
+                الكل
+              </button>
+            </div>
+            <div className="divide-y divide-slate-50 dark:divide-slate-800">
+              {submissions.slice(0, 6).map(sub => {
+                const student = students.find(s => s.id === sub.studentId);
+                return (
+                  <div key={sub.id} className="p-3 px-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-900/50">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold text-slate-800 dark:text-white truncate">
+                        {student?.fullName}
+                      </div>
+                      <div className="text-[9px] text-slate-400">{student?.classroom}</div>
+                    </div>
+                    <div className="text-[11px] font-black text-slate-700 dark:text-slate-300">
+                      {sub.percentage}%
+                    </div>
+                  </div>
+                );
+              })}
+              {submissions.length === 0 && (
+                <div className="p-8 text-center text-[10px] text-slate-400 font-bold">لا توجد نتائج بعد</div>
+              )}
+            </div>
+          </div>
+
+          {/* تذكير هادئ */}
+          <div className="p-4 rounded-xl bg-sky-50/50 dark:bg-sky-950/20 border border-sky-100 dark:border-sky-900/30">
+            <div className="text-[10px] font-bold text-sky-800 dark:text-sky-300 mb-1 flex items-center gap-1">
+              <Layers className="w-3 h-3" />
+              <span>معلومة النظام</span>
+            </div>
+            <p className="text-[10px] text-sky-700 dark:text-sky-400 leading-relaxed">
+              يتم تصنيف الطلاب كمرشحين (موهوبين) تلقائياً عند الحصول على درجة أعلى من {settings.minScoreForNomination}% في مقياس الاستعداد.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="text-[10px] text-slate-400 dark:text-slate-500 text-center font-medium opacity-70">
         {settings.reportDisclaimer}
       </div>
     </div>

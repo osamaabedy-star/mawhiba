@@ -6,7 +6,8 @@ import {
   Student, 
   ExamSubmission, 
   AppSettings, 
-  CandidateStatus 
+  CandidateStatus,
+  GradeLevel
 } from './types';
 import { 
   loadDatabase, 
@@ -14,7 +15,9 @@ import {
   resetDatabaseToDefaults, 
   AppDatabaseState,
   loadDatabaseFromFirestore,
-  syncDatabaseToFirestore
+  syncDatabaseToFirestore,
+  deleteTestFromStorageAndFirestore,
+  unmarkTestAsDeleted
 } from './services/storage';
 import { auth, logout } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -31,6 +34,7 @@ import { NominationList } from './components/NominationList';
 import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
 import { SupervisorAuthModal } from './components/SupervisorAuthModal';
+import { ZipGradeManager } from './components/ZipGradeManager';
 
 export default function App() {
   // Main Database State loaded from persistent storage / initial seed
@@ -115,6 +119,10 @@ export default function App() {
 
   // Reports state
   const [selectedReportSubId, setSelectedReportSubId] = useState<string | null>(null);
+
+  // ZipGrade Paper Exam state
+  const [zipGradeTargetTestId, setZipGradeTargetTestId] = useState<string | undefined>(undefined);
+  const [zipGradeTargetGrade, setZipGradeTargetGrade] = useState<GradeLevel | undefined>(undefined);
 
   // Quick switch role
   const handleSetRole = (newRole: UserRole) => {
@@ -262,6 +270,7 @@ export default function App() {
 
   // Test Management Handlers
   const handleSaveTest = (savedTest: Test) => {
+    unmarkTestAsDeleted(savedTest.id);
     setDbState(prev => {
       const exists = prev.tests.some(t => t.id === savedTest.id);
       return {
@@ -273,19 +282,37 @@ export default function App() {
     });
   };
 
-  const handleDeleteTest = (testId: string) => {
+  const handleDeleteTest = async (testId: string) => {
     setDbState(prev => ({
       ...prev,
       tests: prev.tests.filter(t => t.id !== testId),
     }));
+    await deleteTestFromStorageAndFirestore(testId);
+    console.log('Test deleted permanently:', testId);
   };
 
-  // Student Management Handlers
   const handleAddStudent = (newStudent: Student) => {
     setDbState(prev => ({
       ...prev,
       students: [newStudent, ...prev.students],
     }));
+  };
+
+  const handleAddMultipleStudents = (newStudents: Student[]) => {
+    setDbState(prev => ({
+      ...prev,
+      students: [...newStudents, ...prev.students],
+    }));
+  };
+
+  const handleUpdateMultipleStudents = (updatedStudents: Student[]) => {
+    setDbState(prev => {
+      const updateMap = new Map(updatedStudents.map(s => [s.id, s]));
+      return {
+        ...prev,
+        students: prev.students.map(s => updateMap.get(s.id) || s),
+      };
+    });
   };
 
   const handleUpdateStudent = (updatedStudent: Student) => {
@@ -311,6 +338,16 @@ export default function App() {
     setDbState(prev => ({
       ...prev,
       students: prev.students.filter(s => s.id !== studentId),
+      submissions: prev.submissions.filter(sub => sub.studentId !== studentId)
+    }));
+  };
+
+  const handleDeleteMultipleStudents = (studentIds: string[]) => {
+    const idSet = new Set(studentIds);
+    setDbState(prev => ({
+      ...prev,
+      students: prev.students.filter(s => !idSet.has(s.id)),
+      submissions: prev.submissions.filter(sub => !idSet.has(sub.studentId))
     }));
   };
 
@@ -371,6 +408,49 @@ export default function App() {
       };
       saveDatabase(nextState);
       console.log(`Student ${student.fullName} has been reset for re-testing.`);
+      return nextState;
+    });
+  };
+
+  const handleOpenZipGrade = (testId?: string, grade?: GradeLevel) => {
+    setZipGradeTargetTestId(testId);
+    setZipGradeTargetGrade(grade);
+    setActiveTab('zipgrade');
+  };
+
+  const handleImportZipGradeSubmissions = (newSubmissions: ExamSubmission[], updatedStudents: Student[]) => {
+    setDbState(prev => {
+      const newSubIds = new Set(newSubmissions.map(s => s.id));
+      const mergedSubmissions = [...newSubmissions, ...prev.submissions.filter(s => !newSubIds.has(s.id))];
+
+      const nextState: AppDatabaseState = {
+        ...prev,
+        submissions: mergedSubmissions,
+        students: updatedStudents,
+      };
+      saveDatabase(nextState);
+      syncDatabaseToFirestore(nextState).catch(err => {
+        console.warn('Auto-sync to firestore for paper exam:', err);
+      });
+      return nextState;
+    });
+  };
+
+  const handleUpdateQuestionStats = (statsMap: Record<string, any>) => {
+    setDbState(prev => {
+      const nextState = {
+        ...prev,
+        questions: prev.questions.map(q => {
+          if (statsMap[q.id]) {
+            return {
+              ...q,
+              psychometricStats: statsMap[q.id]
+            };
+          }
+          return q;
+        })
+      };
+      saveDatabase(nextState);
       return nextState;
     });
   };
@@ -452,6 +532,7 @@ export default function App() {
                 onDeleteQuestion={handleDeleteQuestion}
                 onDuplicateQuestion={handleDuplicateQuestion}
                 onBulkAddQuestions={handleBulkAddQuestions}
+                onOpenZipGrade={(grade) => handleOpenZipGrade(undefined, grade)}
               />
             )}
 
@@ -459,10 +540,33 @@ export default function App() {
               <TestBuilder
                 tests={dbState.tests}
                 questions={dbState.questions}
+                students={dbState.students}
                 settings={dbState.settings}
                 onSaveTest={handleSaveTest}
                 onDeleteTest={handleDeleteTest}
                 onLaunchStudentExamWithTest={(tId, mId) => handleLaunchStudentExam(undefined, tId, mId)}
+                onOpenZipGradeForTest={(tId) => handleOpenZipGrade(tId)}
+                onEditQuestion={handleEditQuestion}
+                onSaveQuestion={handleSaveQuestion}
+                onAddMultipleStudents={handleAddMultipleStudents}
+                onUpdateMultipleStudents={handleUpdateMultipleStudents}
+              />
+            )}
+
+            {activeTab === 'zipgrade' && (
+              <ZipGradeManager
+                tests={dbState.tests}
+                questions={dbState.questions}
+                students={dbState.students}
+                submissions={dbState.submissions}
+                settings={dbState.settings}
+                initialSelectedTestId={zipGradeTargetTestId}
+                initialGrade={zipGradeTargetGrade}
+                onImportSubmissions={handleImportZipGradeSubmissions}
+                onUpdateQuestionStats={handleUpdateQuestionStats}
+                onNavigateToResults={() => setActiveTab('results')}
+                onNavigateToReports={() => setActiveTab('reports')}
+                onNavigateToNominations={() => setActiveTab('nominations')}
               />
             )}
 
@@ -471,10 +575,13 @@ export default function App() {
                 students={dbState.students}
                 tests={dbState.tests}
                 onAddStudent={handleAddStudent}
+                onAddMultipleStudents={handleAddMultipleStudents}
                 onUpdateStudent={handleUpdateStudent}
+                onUpdateMultipleStudents={handleUpdateMultipleStudents}
                 onDeleteStudent={handleDeleteStudent}
                 onLaunchExamForStudent={(st, tId, mId) => handleLaunchStudentExam(st, tId, mId)}
                 onResetStudentTest={handleResetStudentTest}
+                onDeleteMultipleStudents={handleDeleteMultipleStudents}
               />
             )}
 

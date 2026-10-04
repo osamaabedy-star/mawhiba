@@ -58,6 +58,7 @@ export const ResultsAnalysis: React.FC<ResultsAnalysisProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [testFilter, setTestFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'date' | 'score' | 'classroom' | 'level'>('date');
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [subToReset, setSubToReset] = useState<ExamSubmission | null>(null);
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
@@ -78,8 +79,21 @@ export const ResultsAnalysis: React.FC<ResultsAnalysisProps> = ({
       const matchesTest = testFilter === 'all' || sub.testId === testFilter;
 
       return matchesSearch && matchesStatus && matchesTest;
+    }).sort((a, b) => {
+      if (sortBy === 'score') return b.percentage - a.percentage;
+      if (sortBy === 'classroom') {
+        const sA = students.find(s => s.id === a.studentId);
+        const sB = students.find(s => s.id === b.studentId);
+        return (sA?.classroom || '').localeCompare(sB?.classroom || '');
+      }
+      if (sortBy === 'level') {
+        const tA = tests.find(t => t.id === a.testId);
+        const tB = tests.find(t => t.id === b.testId);
+        return (tA?.level || '').localeCompare(tB?.level || '');
+      }
+      return new Date(b.endTime).getTime() - new Date(a.endTime).getTime();
     });
-  }, [submissions, students, tests, searchTerm, statusFilter, testFilter]);
+  }, [submissions, students, tests, searchTerm, statusFilter, testFilter, sortBy]);
 
   const activeSubmission = submissions.find(s => s.id === selectedSubmissionId);
   const activeStudent = activeSubmission ? students.find(s => s.id === activeSubmission.studentId) : null;
@@ -131,6 +145,20 @@ export const ResultsAnalysis: React.FC<ResultsAnalysisProps> = ({
               placeholder="ابحث باسم الطالب، السجل المدني..."
               className="w-full pr-9 pl-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
             />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as any)}
+              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+            >
+              <option value="date">ترتيب حسب: الأحدث أولاً</option>
+              <option value="score">ترتيب حسب: الأعلى درجة</option>
+              <option value="classroom">فرز حسب: الفصل الدراسي</option>
+              <option value="level">فرز حسب: مستوى الاختبار</option>
+            </select>
           </div>
 
           <div>
