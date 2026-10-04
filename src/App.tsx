@@ -324,11 +324,16 @@ export default function App() {
     }
   };
 
-  const handleAddMultipleStudents = (newStudents: Student[]) => {
-    setDbState(prev => ({
-      ...prev,
-      students: [...newStudents, ...prev.students],
-    }));
+  const handleAddMultipleStudents = async (newStudents: Student[]) => {
+    try {
+      await Promise.all(newStudents.map(s => saveToFirestore('students', s.id, s)));
+      setDbState(prev => ({
+        ...prev,
+        students: [...newStudents, ...prev.students],
+      }));
+    } catch (err) {
+      alert('فشل إضافة الطلاب إلى السحابة.');
+    }
   };
 
   const handleUpdateMultipleStudents = async (updatedStudents: Student[]) => {

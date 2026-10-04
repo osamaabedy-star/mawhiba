@@ -177,13 +177,6 @@ export function loadDatabase(): AppDatabaseState {
       }
     }
 
-    // Add any missing questions from INITIAL_QUESTIONS
-    for (const initial of INITIAL_QUESTIONS) {
-      if (!seenMap.has(initial.id)) {
-        seenMap.set(initial.id, initial);
-      }
-    }
-
     loadedQuestions = Array.from(seenMap.values()).map(q => ({
       ...q,
       imageUrl: fixImageUrl(q.imageUrl),
@@ -207,14 +200,6 @@ export function loadDatabase(): AppDatabaseState {
     }
 
     let loadedStudents: Student[] = studentsStr ? JSON.parse(studentsStr) : INITIAL_STUDENTS;
-    if (loadedStudents.length < INITIAL_STUDENTS.length) {
-      const existingStuIds = new Set(loadedStudents.map(s => s.id));
-      const missing = INITIAL_STUDENTS.filter(s => !existingStuIds.has(s.id));
-      if (missing.length > 0) {
-        loadedStudents = [...loadedStudents, ...missing];
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}students`, JSON.stringify(loadedStudents));
-      }
-    }
 
     // Check permanently deleted test IDs to prevent deleted tests from returning on reload
     const deletedTestIds = getDeletedTestIds();
@@ -361,11 +346,6 @@ export async function loadDatabaseFromFirestore(): Promise<AppDatabaseState | nu
     const testsSnap = await getDocs(collection(db, 'tests'));
     const submissionsSnap = await getDocs(collection(db, 'submissions'));
     const settingsSnap = await getDoc(doc(db, 'settings', 'config'));
-
-    if (questionsSnap.empty && studentsSnap.empty && testsSnap.empty && submissionsSnap.empty && !settingsSnap.exists()) {
-      console.log('Firestore is empty or not accessible.');
-      return null;
-    }
 
     const settingsData = settingsSnap.exists() ? settingsSnap.data() as AppSettings : INITIAL_SETTINGS;
     const mergedSettings = {
