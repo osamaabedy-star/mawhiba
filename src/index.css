@@ -238,5 +238,21 @@
     flex-wrap: wrap;
     gap: 4mm;
   }
+
+  /* Extreme Paper Saving Layout */
+  .print-compact-layout .question-print-item {
+    margin-bottom: 1.5mm !important;
+    padding: 3px 6px !important;
+    border-width: 1px !important;
+  }
+  
+  .print-compact-layout .question-print-item img {
+    max-height: 50px !important;
+  }
+  
+  .print-compact-layout .question-print-item p {
+    margin-bottom: 0.5mm !important;
+    line-height: 1.2 !important;
+  }
 }
 

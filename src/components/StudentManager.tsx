@@ -23,7 +23,9 @@ import {
   Users,
   GraduationCap,
   Sparkles,
-  BookOpen
+  BookOpen,
+  TrendingUp,
+  Filter
 } from 'lucide-react';
 
 interface StudentManagerProps {
@@ -60,6 +62,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGrade, setSelectedGrade] = useState<string>('all');
+  const [selectedClassroom, setSelectedClassroom] = useState<string>('all');
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Student; direction: 'asc' | 'desc' } | null>({ key: 'fullName', direction: 'asc' });
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -127,9 +131,17 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [classAssignedTestId, setClassAssignedTestId] = useState<string>('');
   const [classNamesText, setClassNamesText] = useState<string>('');
 
-  // Filtered Students
+  const handleSort = (key: keyof Student) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  // Filtered and Sorted Students
   const filteredStudents = useMemo(() => {
-    return students.filter(s => {
+    let result = students.filter(s => {
       const studentIdNum = s.nationalId || s.nationalIdMasked || '';
       const stuNumber = s.studentNumber || s.internalStudentId || '';
       const stuGrade = s.grade || s.gradeLevel || 'g3_primary';
@@ -141,10 +153,24 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
         (s.classroom && s.classroom.includes(searchTerm));
 
       const matchGrade = selectedGrade === 'all' || stuGrade === selectedGrade;
+      const matchClassroom = selectedClassroom === 'all' || s.classroom === selectedClassroom;
 
-      return matchSearch && matchGrade;
+      return matchSearch && matchGrade && matchClassroom;
     });
-  }, [students, searchTerm, selectedGrade]);
+
+    if (sortConfig) {
+      result.sort((a, b) => {
+        const aValue = String(a[sortConfig.key] || '').toLowerCase();
+        const bValue = String(b[sortConfig.key] || '').toLowerCase();
+        
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [students, searchTerm, selectedGrade, selectedClassroom, sortConfig]);
 
   const openAddModal = () => {
     setEditingStudent(null);
@@ -1012,6 +1038,17 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               <option key={gr} value={gr}>{GRADE_LABELS[gr]}</option>
             ))}
           </select>
+
+          <select
+            value={selectedClassroom}
+            onChange={e => setSelectedClassroom(e.target.value)}
+            className="px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white cursor-pointer"
+          >
+            <option value="all">كافة الفصول</option>
+            {Array.from(new Set(students.map(s => s.classroom || 'عام'))).sort().map(cls => (
+              <option key={cls} value={cls}>{cls}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -1103,9 +1140,24 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
             {/* رأس الجدول: | الطالب | الصف | الفصل | الرقم | الاختبارات | الإجراءات | */}
             <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="px-5 py-3.5">الطالب</th>
-                <th className="px-4 py-3.5">الصف</th>
-                <th className="px-4 py-3.5">الفصل</th>
+                <th className="px-5 py-3.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('fullName')}>
+                  <div className="flex items-center gap-1 justify-end">
+                    <span>الطالب</span>
+                    <TrendingUp className="w-3 h-3 opacity-50 text-sky-600" />
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('grade')}>
+                  <div className="flex items-center gap-1 justify-end">
+                    <span>الصف</span>
+                    <Filter className="w-3 h-3 opacity-50 text-sky-600" />
+                  </div>
+                </th>
+                <th className="px-4 py-3.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('classroom')}>
+                  <div className="flex items-center gap-1 justify-end">
+                    <span>الفصل</span>
+                    <Filter className="w-3 h-3 opacity-50 text-sky-600" />
+                  </div>
+                </th>
                 <th className="px-4 py-3.5">الرقم</th>
                 <th className="px-4 py-3.5">الحالة</th>
                 <th className="px-4 py-3.5">الاختبارات</th>

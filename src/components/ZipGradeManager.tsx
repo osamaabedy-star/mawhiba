@@ -50,7 +50,8 @@ import {
   XCircle,
   CheckSquare,
   Square,
-  Trash2
+  Trash2,
+  UploadCloud
 } from 'lucide-react';
 import { seededShuffle } from '../utils/deterministic';
 import { SchoolLogo } from './SchoolLogo';
@@ -1049,17 +1050,38 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
     };
   }, [parsedRows, modelQuestions]);
 
-  // Handle file drop / upload with ArrayBuffer to preserve both Excel and CSV
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // State for drag and drop
+  const [isDragging, setIsDragging] = useState(false);
 
+  const handleFileProcessing = (file: File) => {
     const reader = new FileReader();
     reader.onload = (evt) => {
       const buffer = evt.target?.result as ArrayBuffer;
       parseZipGradeData(buffer);
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFileProcessing(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFileProcessing(file);
   };
 
   // Export Full Analyzed Exam Report into Rich Excel (.xlsx)
@@ -2013,7 +2035,14 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
               {/* Drag and Drop Box */}
               <div 
                 onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-500 dark:hover:border-indigo-400 rounded-3xl p-8 text-center cursor-pointer bg-slate-50/50 dark:bg-slate-900/30 transition-all group"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-3xl p-8 text-center cursor-pointer transition-all group ${
+                  isDragging 
+                    ? 'border-indigo-600 bg-indigo-50/50 dark:bg-indigo-900/40 scale-[1.02] shadow-lg' 
+                    : 'border-slate-300 dark:border-slate-600 hover:border-indigo-500 dark:hover:border-indigo-400 bg-slate-50/50 dark:bg-slate-900/30 shadow-xs hover:shadow-md'
+                }`}
               >
                 <input
                   type="file"
@@ -2022,11 +2051,13 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
                   accept=".csv, .xlsx, .xls, text/csv"
                   className="hidden"
                 />
-                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-3 group-hover:scale-105 transition-transform">
-                  <Upload className="w-7 h-7" />
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 transition-all ${
+                  isDragging ? 'bg-indigo-600 text-white scale-110' : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 group-hover:scale-105'
+                }`}>
+                  {isDragging ? <UploadCloud className="w-8 h-8 animate-bounce" /> : <Upload className="w-7 h-7" />}
                 </div>
-                <div className="text-sm font-extrabold text-slate-800 dark:text-slate-200">
-                  انقر هنا لاختيار ملف نتائج ZipGrade (أو اسحب الملف وأفلته هنا)
+                <div className={`text-sm font-extrabold transition-colors ${isDragging ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-800 dark:text-slate-200'}`}>
+                  {isDragging ? 'أفلت الملف الآن للبدء بالتحليل' : 'انقر هنا لاختيار ملف نتائج ZipGrade (أو اسحب الملف وأفلته هنا)'}
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
                   يدعم صيغ .csv و .xlsx مباشرة الصادرة من تطبيق ZipGrade

@@ -139,6 +139,7 @@ interface TestBuilderProps {
   settings?: AppSettings;
   onSaveTest: (test: Test) => void;
   onDeleteTest: (testId: string) => void;
+  onDeleteModel?: (testId: string, modelId: string) => void;
   onLaunchStudentExamWithTest?: (testId: string, modelId: string) => void;
   onOpenZipGradeForTest?: (testId: string) => void;
   onEditQuestion?: (question: Question) => void;
@@ -662,16 +663,18 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
     const emptyModel = editingTest.models.find(m => m.questionIds.length === 0);
     if (emptyModel) { setValidationError(`النموذج (${emptyModel.name}) فارغ! يرجى إضافة أسئلة للنموذج.`); return; }
     
-    // Automatically change/increment the code with every save operation
-    const prevCode = editingTest.models[0]?.code || editingTest.code || 'TEST-01';
-    const nextCode = generateNextTestCode(prevCode);
+    // Reuse existing code if available, otherwise generate first code
+    const existingCode = editingTest.code || (editingTest.models.length > 0 ? editingTest.models[0].code : '');
+    const finalCode = existingCode || 'TEST-01';
+
     const updatedModels = editingTest.models.map(m => ({
       ...m,
-      code: nextCode,
+      code: m.code || finalCode,
     }));
+
     const testToSave: Test = {
       ...editingTest,
-      code: nextCode,
+      code: finalCode,
       models: updatedModels,
     };
 
@@ -713,8 +716,8 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
     onSaveTest(updatedTest);
   };
 
-  // Permanently commit and lock the current question order with the test code!
-  // Automatically advances code on each save operation
+  // Perfectly commit and lock the current question order with the test code!
+  // Only advances code if a meaningful change in content or order happened.
   const handleSaveFinalWithCode = () => {
     if (!previewTest) return;
 
@@ -723,20 +726,35 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
       group.questions.map(q => q.originalQuestionId || q.id)
     );
 
-    // Generate next sequential code with every save operation
+    // Check if any existing model in this test already has this EXACT sequence of questions
+    const existingMatchingModel = previewTest.test.models.find(m => 
+      m.questionIds.length === finalQuestionIds.length &&
+      m.questionIds.every((id, idx) => id === finalQuestionIds[idx])
+    );
+
+    if (existingMatchingModel) {
+      const matchCode = existingMatchingModel.code || existingMatchingModel.id.slice(-6).toUpperCase();
+      setPaperTestCode(matchCode);
+      setFinalSaveToast(`ℹ️ هذا النموذج موجود مسبقاً بنفس الترتيب بالكود (#${matchCode}). تم استخدامه بدلاً من إنشاء كود جديد.`);
+      setTimeout(() => setFinalSaveToast(null), 4000);
+      setShuffleQuestions(false);
+      setHasOrderChanged(false);
+      return;
+    }
+
+    // Generate next sequential code only if change happened
     const nextCode = generateNextTestCode(paperTestCode || previewTest.model.code || 'TEST-01');
     setPaperTestCode(nextCode);
 
     const updatedModel: TestModel = {
       ...previewTest.model,
+      id: `mod_${Date.now()}`,
       code: nextCode,
       questionIds: finalQuestionIds,
-      name: previewTest.model.name || 'النموذج الموحد',
+      name: `نموذج #${nextCode}`,
     };
 
-    const updatedModels = previewTest.test.models.map(m => 
-      m.id === updatedModel.id ? updatedModel : m
-    );
+    const updatedModels = [...previewTest.test.models, updatedModel];
 
     const updatedTest: Test = {
       ...previewTest.test,
@@ -749,10 +767,24 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
     setPreviewTest({ test: updatedTest, model: updatedModel });
     setShuffleQuestions(false);
     setHasOrderChanged(false);
-    setPaperRepeatCount(0); // Reset repeat counter as they are now part of the frozen model
+    setPaperRepeatCount(0); 
 
-    setFinalSaveToast(`🎉 تم الحفظ وتحديث كود الاختبار تلقائياً إلى (#${nextCode}) وتثبيت ترتيب الأسئلة ومفتاح الإجابة الـ (${finalQuestionIds.length}) سؤالاً بشكل دائم ومطابق 100% للتصحيح.`);
+    setFinalSaveToast(`🎉 تم الحفظ وتوليد كود جديد (#${nextCode}) لهذا الترتيب الفريد. تم تثبيت ترتيب الـ (${finalQuestionIds.length}) سؤالاً.`);
     setTimeout(() => setFinalSaveToast(null), 5000);
+  };
+
+  const handleDeleteModel = (testId: string, modelId: string) => {
+    const test = tests.find(t => t.id === testId);
+    if (!test) return;
+    if (test.models.length <= 1) {
+      alert('لا يمكن حذف النموذج الوحيد للاختبار.');
+      return;
+    }
+    if (!confirm('هل أنت متأكد من حذف هذا الكود/النموذج نهائياً؟')) return;
+
+    const updatedModels = test.models.filter(m => m.id !== modelId);
+    const updatedTest = { ...test, models: updatedModels };
+    onSaveTest(updatedTest);
   };
 
   // Move a question up or down in the preview and auto-update the version code
@@ -1280,19 +1312,27 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                       const mCode = m.code || m.id.slice(-6).toUpperCase();
                       const isMatch = testSearchByCode && mCode.toUpperCase().includes(testSearchByCode.toUpperCase());
                       return (
-                        <button 
-                          key={m.id} 
-                          onClick={() => setPreviewTest({ test, model: m })}
-                          title={`فتح النموذج: ${m.name} (كود #${mCode})`}
-                          className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-mono font-black transition-all cursor-pointer ${
-                            isMatch 
-                              ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm ring-2 ring-indigo-400 scale-105' 
-                              : 'bg-slate-50 dark:bg-slate-900 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-900/60 hover:border-indigo-300'
-                          }`}
-                        >
-                          <Hash className="w-2.5 h-2.5" />
-                          <span>{mCode}</span>
-                        </button>
+                        <div key={m.id} className="group relative">
+                          <button 
+                            onClick={() => setPreviewTest({ test, model: m })}
+                            title={`فتح النموذج: ${m.name} (كود #${mCode})`}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-mono font-black transition-all cursor-pointer ${
+                              isMatch 
+                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm ring-2 ring-indigo-400 scale-105' 
+                                : 'bg-slate-50 dark:bg-slate-900 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-900/60 hover:border-indigo-300'
+                            }`}
+                          >
+                            <Hash className="w-2.5 h-2.5" />
+                            <span>{mCode}</span>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteModel(test.id, m.id); }}
+                            className="absolute -top-1.5 -left-1.5 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm cursor-pointer z-10"
+                            title="حذف هذا الكود"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -2439,7 +2479,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                 </div>
 
                 {/* Printable Questions Grid */}
-                <div className={previewMinimalist ? 'print-columns-2' : 'print-columns-1 space-y-2'}>
+                <div className={`${previewMinimalist ? 'print-columns-2' : 'print-columns-1'} ${paperCompactSpacing ? 'print-compact-layout' : 'space-y-2'}`}>
                   {displayStructure.map((group, gIdx) => (
                     <React.Fragment key={gIdx}>
                       {group.title && (
