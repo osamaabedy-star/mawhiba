@@ -66,7 +66,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.error(`[FIRESTORE ERROR] ${operationType.toUpperCase()} on ${path}:`, errInfo);
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -136,123 +136,29 @@ export async function deleteTestFromStorageAndFirestore(testId: string): Promise
 }
 
 export function loadDatabase(): AppDatabaseState {
-  try {
-    const settingsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}settings`);
-    const questionsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}questions`);
-    const testsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}tests`);
-    const studentsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}students`);
-    const submissionsStr = localStorage.getItem(`${STORAGE_KEY_PREFIX}submissions`);
-
-    let loadedQuestions: Question[] = questionsStr ? JSON.parse(questionsStr) : INITIAL_QUESTIONS;
-    
-    // Sync system questions with calibrated gradeLevels, difficulties, and content from INITIAL_QUESTIONS
-    const initialMap = new Map<string, Question>(INITIAL_QUESTIONS.map(q => [q.id, q]));
-    
-    // Deduplicate and calibrate
-    const seenMap = new Map<string, Question>();
-    
-    // First, process loaded questions and update with any calibrated definitions
-    for (const q of loadedQuestions) {
-      const initial = initialMap.get(q.id);
-      if (initial) {
-        seenMap.set(q.id, {
-          ...q,
-          gradeLevels: initial.gradeLevels,
-          difficulty: initial.difficulty,
-          skill: initial.skill,
-          subSkill: initial.subSkill || q.subSkill,
-          title: initial.title,
-          questionText: initial.questionText,
-          options: initial.options,
-          correctOptionId: initial.correctOptionId,
-          explanation: initial.explanation,
-          svgGraphic: initial.svgGraphic || q.svgGraphic,
-          imageUrl: initial.imageUrl || q.imageUrl,
-        });
-      } else {
-        // Custom user question
-        if (!seenMap.has(q.id)) {
-          seenMap.set(q.id, q);
-        }
-      }
-    }
-
-    loadedQuestions = Array.from(seenMap.values()).map(q => ({
-      ...q,
-      imageUrl: fixImageUrl(q.imageUrl),
-    }));
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}questions`, JSON.stringify(loadedQuestions));
-
-    let loadedSettings: AppSettings = settingsStr ? JSON.parse(settingsStr) : INITIAL_SETTINGS;
-    
-    // Ensure all required fields from INITIAL_SETTINGS exist (migration for existing users)
-    loadedSettings = {
-      ...INITIAL_SETTINGS,
-      ...loadedSettings,
-      questionCounts: {
-        ...INITIAL_SETTINGS.questionCounts,
-        ...(loadedSettings.questionCounts || {})
-      }
-    };
-
-    if (loadedSettings.platformName?.includes('منصة الإبداع')) {
-      loadedSettings.platformName = 'منصة الموهوبين';
-    }
-
-    let loadedStudents: Student[] = studentsStr ? JSON.parse(studentsStr) : INITIAL_STUDENTS;
-
-    // Check permanently deleted test IDs to prevent deleted tests from returning on reload
-    const deletedTestIds = getDeletedTestIds();
-
-    // Sync tests models from INITIAL_TESTS to ensure calibrated question selections
-    let loadedTests: Test[] = testsStr ? JSON.parse(testsStr) : INITIAL_TESTS;
-    // Always exclude any test that was deleted by the user
-    loadedTests = loadedTests.filter(t => !deletedTestIds.has(t.id));
-    
-    const initialTestMap = new Map<string, Test>(INITIAL_TESTS.map(t => [t.id, t]));
-    loadedTests = loadedTests.map(t => {
-      const init = initialTestMap.get(t.id);
-      if (init) {
-        return {
-          ...t,
-          models: init.models,
-          targetGrades: init.targetGrades,
-        };
-      }
-      return t;
-    });
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}tests`, JSON.stringify(loadedTests));
-
-    return {
-      settings: loadedSettings,
-      questions: loadedQuestions,
-      tests: loadedTests,
-      students: loadedStudents,
-      submissions: submissionsStr ? JSON.parse(submissionsStr) : INITIAL_SUBMISSIONS,
-    };
-  } catch (error) {
-    console.error('Failed to load database from localStorage, resetting to defaults:', error);
-    return {
-      settings: INITIAL_SETTINGS,
-      questions: INITIAL_QUESTIONS,
-      tests: INITIAL_TESTS,
-      students: INITIAL_STUDENTS,
-      submissions: INITIAL_SUBMISSIONS,
-    };
-  }
+  // FIRESTORE IS NOW THE SOURCE OF TRUTH. 
+  // localStorage is deprecated for data storage to ensure sync between Vercel and AI Studio.
+  console.log('[STORAGE] Initializing with empty state, waiting for Firestore load...');
+  
+  return {
+    settings: INITIAL_SETTINGS,
+    questions: [],
+    tests: [],
+    students: [],
+    submissions: [],
+  };
 }
 
 export function saveDatabase(data: AppDatabaseState): void {
+  // Core data is no longer saved to localStorage to prevent stale data resurrection.
+  // We only sync to Firestore atomically via App.tsx handlers.
+  
+  // Optional: Save UI preferences only
   try {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}settings`, JSON.stringify(data.settings));
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}questions`, JSON.stringify(data.questions));
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}tests`, JSON.stringify(data.tests));
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}students`, JSON.stringify(data.students));
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}submissions`, JSON.stringify(data.submissions));
-    
-    // Cloud sync is now handled atomically in App.tsx handlers for better reliability
-  } catch (error) {
-    console.error('Failed to save to localStorage:', error);
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}last_sync`, new Date().toISOString());
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}darkMode`, JSON.stringify(data.settings.darkMode));
+  } catch (e) {
+    // Ignore localStorage errors
   }
 }
 
@@ -275,8 +181,9 @@ export async function saveToFirestore(collectionName: string, id: string, data: 
   if (!isSupervisor && collectionName !== 'submissions') return; // Students can create submissions
 
   try {
+    console.log(`[FIRESTORE WRITE] Saving to ${collectionName}/${id}...`);
     await setDoc(doc(db, collectionName, id), sanitizeForFirestore(data));
-    console.log(`Saved to Firestore: ${collectionName}/${id}`);
+    console.log(`[FIRESTORE SUCCESS] Saved ${collectionName}/${id}`);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `${collectionName}/${id}`);
   }
@@ -287,8 +194,9 @@ export async function removeFromFirestore(collectionName: string, id: string): P
   if (!isSupervisor) return;
 
   try {
+    console.log(`[FIRESTORE DELETE] Removing ${collectionName}/${id}...`);
     await deleteDoc(doc(db, collectionName, id));
-    console.log(`Deleted from Firestore: ${collectionName}/${id}`);
+    console.log(`[FIRESTORE SUCCESS] Deleted ${collectionName}/${id}`);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `${collectionName}/${id}`);
   }
@@ -341,11 +249,40 @@ export async function syncDatabaseToFirestore(data: AppDatabaseState): Promise<v
 
 export async function loadDatabaseFromFirestore(): Promise<AppDatabaseState | null> {
   try {
-    const questionsSnap = await getDocs(collection(db, 'questions'));
-    const studentsSnap = await getDocs(collection(db, 'students'));
-    const testsSnap = await getDocs(collection(db, 'tests'));
-    const submissionsSnap = await getDocs(collection(db, 'submissions'));
-    const settingsSnap = await getDoc(doc(db, 'settings', 'config'));
+    console.log('[FIRESTORE READ] Loading collections from cloud...');
+    
+    const fetchCollection = async (name: string) => {
+      try {
+        return await getDocs(collection(db, name));
+      } catch (err) {
+        console.warn(`[FIRESTORE READ] No permission or error for collection "${name}":`, err);
+        return { docs: [], empty: true, size: 0 };
+      }
+    };
+
+    const fetchDoc = async (coll: string, id: string) => {
+      try {
+        return await getDoc(doc(db, coll, id));
+      } catch (err) {
+        console.warn(`[FIRESTORE READ] No permission or error for ${coll}/${id}:`, err);
+        return { exists: () => false, data: () => null };
+      }
+    };
+
+    const [questionsSnap, studentsSnap, testsSnap, submissionsSnap, settingsSnap] = await Promise.all([
+      fetchCollection('questions'),
+      fetchCollection('students'),
+      fetchCollection('tests'),
+      fetchCollection('submissions'),
+      fetchDoc('settings', 'config')
+    ]);
+
+    console.log(`[FIRESTORE DATA] Loaded: ${questionsSnap.size} Qs, ${studentsSnap.size} Students, ${testsSnap.size} Tests, ${submissionsSnap.size} Submissions`);
+
+    if (questionsSnap.empty && studentsSnap.empty && testsSnap.empty && submissionsSnap.empty && !settingsSnap.exists()) {
+      console.log('Firestore is empty or not accessible.');
+      return null;
+    }
 
     const settingsData = settingsSnap.exists() ? settingsSnap.data() as AppSettings : INITIAL_SETTINGS;
     const mergedSettings = {

@@ -9,6 +9,7 @@ import {
   CandidateStatus,
   GradeLevel
 } from './types';
+import { INITIAL_SETTINGS } from './data/initialData';
 import { 
   loadDatabase, 
   saveDatabase, 
@@ -39,8 +40,15 @@ import { SupervisorAuthModal } from './components/SupervisorAuthModal';
 import { ZipGradeManager } from './components/ZipGradeManager';
 
 export default function App() {
-  // Main Database State loaded from persistent storage / initial seed
-  const [dbState, setDbState] = useState<AppDatabaseState>(() => loadDatabase());
+  // Main Database State initialized as empty.
+  // FIRESTORE is the single source of truth for questions, students, tests, and submissions.
+  const [dbState, setDbState] = useState<AppDatabaseState>({
+    settings: INITIAL_SETTINGS,
+    questions: [],
+    tests: [],
+    students: [],
+    submissions: [],
+  });
   const [isCloudLoading, setIsCloudLoading] = useState(false);
   const [user, setUser] = useState(auth.currentUser);
 
@@ -67,13 +75,16 @@ export default function App() {
     if (isCloudLoading) return;
     setIsCloudLoading(true);
     try {
+      console.log('[APP] Fetching authoritative data from Firestore...');
       const cloudData = await loadDatabaseFromFirestore();
       if (cloudData) {
         setDbState(cloudData);
-        console.log('Data loaded from Firestore successfully.');
+        console.log('[APP] App state synchronized with Firestore.');
+      } else {
+        console.warn('[APP] Firestore returned no data or is empty.');
       }
     } catch (err) {
-      console.warn('Failed to load from cloud, using local data.', err);
+      console.error('[APP] Critical: Failed to load from Firestore.', err);
     } finally {
       setIsCloudLoading(false);
     }
@@ -110,9 +121,9 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Persist DB state on changes
+  // Persist minimal UI settings only (deprecated for core data)
   useEffect(() => {
-    saveDatabase(dbState);
+    // saveDatabase(dbState); // No longer needed for core data as Firestore is the Source of Truth
   }, [dbState]);
 
   // Modals & Interactive Flow States
