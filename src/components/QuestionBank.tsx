@@ -652,7 +652,7 @@ export const QuestionBank: React.FC<QuestionBankProps> = ({
 
             return (
               <div
-                key={q.id}
+                key={`${q.id}-${idx}`}
                 className="bg-white dark:bg-slate-800 rounded-3xl p-5 border border-slate-200 dark:border-slate-700 shadow-xs flex flex-col justify-between space-y-4 hover:border-sky-300 dark:hover:border-sky-700 transition-all"
               >
                 <div className="space-y-3">

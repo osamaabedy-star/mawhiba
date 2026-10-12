@@ -63,12 +63,14 @@ import {
   ChevronRight,
   ImagePlus,
   UploadCloud,
-  Hash
+  Hash,
+  FileSpreadsheet
 } from 'lucide-react';
 import { seededShuffle } from '../utils/deterministic';
 import { VisualShape } from './VisualShape';
 import { PrintQuestionCard } from './QuestionBank';
 import { SchoolLogo } from './SchoolLogo';
+import { CsvTestImportModal } from './CsvTestImportModal';
 
 // Perfectly centered circular bubble for question option letters (أ، ب، ج، د)
 // Using SVG text-anchor middle and dominant-baseline central for mathematical precision
@@ -144,6 +146,7 @@ interface TestBuilderProps {
   onOpenZipGradeForTest?: (testId: string) => void;
   onEditQuestion?: (question: Question) => void;
   onSaveQuestion?: (question: Question) => void;
+  onBulkAddQuestions?: (questions: Question[]) => void;
   onAddMultipleStudents?: (students: Student[]) => void;
   onUpdateMultipleStudents?: (students: Student[]) => void;
 }
@@ -159,11 +162,14 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
   onOpenZipGradeForTest,
   onEditQuestion,
   onSaveQuestion,
+  onBulkAddQuestions,
   onAddMultipleStudents,
   onUpdateMultipleStudents,
 }) => {
   const [editingTest, setEditingTest] = useState<Test | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [isCsvImportOpen, setIsCsvImportOpen] = useState(false);
+  const [csvImportToast, setCsvImportToast] = useState<string | null>(null);
   const [activeModelIndex, setActiveModelIndex] = useState(0);
   const [testToDelete, setTestToDelete] = useState<Test | null>(null);
   const [previewTest, setPreviewTest] = useState<{ test: Test; model: TestModel } | null>(null);
@@ -211,7 +217,8 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
   const [paperCoordinatorName, setPaperCoordinatorName] = useState<string>('');
   const [hasOrderChanged, setHasOrderChanged] = useState<boolean>(false);
   const [showAnswersInPrint, setShowAnswersInPrint] = useState<boolean>(false);
-  const [ensureEvenPages, setEnsureEvenPages] = useState<boolean>(true);
+  const [blankPageStrategy, setBlankPageStrategy] = useState<'auto' | 'always' | 'off'>('auto');
+  const [paperSpacingMode, setPaperSpacingMode] = useState<'normal' | 'compact' | 'extreme'>('compact');
   const [finalSaveToast, setFinalSaveToast] = useState<string | null>(null);
   const [testSearchByCode, setTestSearchByCode] = useState<string>('');
 
@@ -316,9 +323,18 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
 
   // Derived question structure for preview/print (Sections vs Shuffle)
   const displayStructure = useMemo(() => {
-    if (!previewTest) return [];
+    if (!previewTest) return { groups: [], isOddEstimated: false, totalQuestions: 0 };
     const { model, test } = previewTest;
     
+    // SMART LOGIC: If this is a frozen model (has a code), trust its questionIds sequence EXCLUSIVELY.
+    // This ensures printing an "Old Code" for new students works exactly as it was originally printed.
+    if (model.code && !hasOrderChanged && paperRepeatCount === 0 && !shuffleQuestions) {
+      const qs = model.questionIds.map(id => questions.find(q => q.id === id)).filter(Boolean) as Question[];
+      const qsPerPage = paperSpacingMode === 'extreme' ? 6.5 : paperSpacingMode === 'compact' ? 4.5 : 2.5;
+      const isOdd = Math.ceil((qs.length / qsPerPage) + 0.5) % 2 !== 0;
+      return { groups: [{ title: '', questions: qs }], isOddEstimated: isOdd, totalQuestions: qs.length };
+    }
+
     // Direct control from user toggle
     const isShuffled = shuffleQuestions;
 
@@ -341,10 +357,10 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
       if (isDuplicate) {
         return {
           ...q,
-          id: `${q.id}_manual_rep_${index}_${Math.random().toString(36).substring(2, 5)}`,
+          id: `${q.id}_manual_rep_${index}`,
           originalQuestionId: q.id,
           isConsistencyCheck: true,
-          isNewPage: true
+          isNewPage: false
         };
       }
       return q;
@@ -373,8 +389,9 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
     const neededRepeats = Math.max(0, targetRepeatCount - existingRepeats.length);
 
     if (neededRepeats > 0 && allQs.length >= 5) {
-      // Pick candidates from the middle of the test for better consistency check
-      const candidates = allQs.filter(q => !q.isConsistencyCheck).slice(2, Math.max(5, allQs.length - 2));
+      // Pick candidates from the first half of the test so they repeat in the second half
+      const maxCandidateIdx = Math.max(3, Math.floor(allQs.length * 0.45));
+      const candidates = allQs.filter(q => !q.isConsistencyCheck).slice(0, maxCandidateIdx);
       
       if (candidates.length > 0) {
         // Seeded pick for repeats
@@ -382,16 +399,26 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
           .slice(0, neededRepeats);
         
         const withRepeats = [...allQs];
+        // Distribute repeat questions across the second half with distance between them
+        const fractions = neededRepeats === 1 
+          ? [0.85] 
+          : neededRepeats === 2 
+          ? [0.65, 0.90] 
+          : [0.55, 0.75, 0.92];
+
         toRepeat.forEach((q, i) => {
           const repeatedQ = {
             ...q,
             id: `${q.id}_auto_rep_${existingRepeats.length + i}_static`, 
             originalQuestionId: q.id,
             isConsistencyCheck: true,
-            isNewPage: true
+            isNewPage: false
           };
-          // Insert near the end in a deterministic way (but before the last 2 questions)
-          const insertPos = Math.max(0, withRepeats.length - 2);
+          const targetFraction = fractions[i] || 0.85;
+          const insertPos = Math.min(
+            withRepeats.length - 1, 
+            Math.max(4, Math.floor(withRepeats.length * targetFraction))
+          );
           withRepeats.splice(insertPos, 0, repeatedQ);
         });
         
@@ -399,26 +426,54 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
       }
     }
 
-    if (isShuffled) {
-      // Deterministic shuffle
-      const shuffled = seededShuffle([...allQs], shuffleSeed);
-      return [{ title: '', questions: shuffled }];
-    }
-    
-    if (model.sections && model.sections.length > 0) {
-      const sections = model.sections.map((sec, sIdx) => {
-        const secQs = sec.questionIds.map(id => questions.find(q => q.id === id)).filter(Boolean) as Question[];
-        if (sIdx === model.sections!.length - 1 && paperRepeatCount > 0 && allQs.length > model.questionIds.length) {
-          const repeats = allQs.filter(q => q.isConsistencyCheck);
-          return { title: sec.title, questions: [...secQs, ...repeats] };
+    const finalQs = isShuffled ? seededShuffle([...allQs], shuffleSeed) : (model.sections && model.sections.length > 0 ? model.sections.map((sec, sIdx) => {
+      // DEDUPLICATE within sections too, to be safe
+      const seenSecIds = new Set<string>();
+      const seenSecTexts = new Set<string>();
+      
+      const secQs = sec.questionIds.map((id, index) => {
+        const q = questions.find(item => item.id === id);
+        if (!q) return null;
+        
+        const normalizedText = q.questionText.trim().toLowerCase();
+        const isDuplicate = seenSecIds.has(id) || seenSecTexts.has(normalizedText);
+        
+        seenSecIds.add(id);
+        seenSecTexts.add(normalizedText);
+        
+        if (isDuplicate) {
+          return {
+            ...q,
+            id: `${q.id}_sec_rep_${sIdx}_${index}`,
+            originalQuestionId: q.id,
+            isConsistencyCheck: true
+          };
         }
-        return { title: sec.title, questions: secQs };
-      });
-      return sections;
-    }
+        return q;
+      }).filter(Boolean) as Question[];
+
+      if (sIdx === model.sections!.length - 1 && paperRepeatCount > 0 && allQs.length > model.questionIds.length) {
+        const autoRepeats = allQs.filter(q => q.id.includes('_auto_rep_'));
+        return { title: sec.title, questions: [...secQs, ...autoRepeats] };
+      }
+      return { title: sec.title, questions: secQs };
+    }) : [{ title: '', questions: allQs }]);
+
+    // Estimate page count for UI indicator (heuristic: ~4 questions per page in 2 columns, ~2 in 1 column)
+    const totalQs = isShuffled ? finalQs.length : (finalQs as { title: string; questions: Question[] }[]).reduce((acc, g) => acc + g.questions.length, 0);
+    let qsPerPage = 2.5;
+    if (paperSpacingMode === 'compact') qsPerPage = 4.5;
+    if (paperSpacingMode === 'extreme') qsPerPage = 6.5;
     
-    return [{ title: '', questions: allQs }];
-  }, [previewTest, questions, shuffleQuestions, paperRepeatCount]);
+    const estimatedPages = Math.ceil(totalQs / qsPerPage) + 0.5; // +0.5 for header
+    const isOdd = Math.ceil(estimatedPages) % 2 !== 0;
+
+    return {
+      groups: isShuffled ? [{ title: '', questions: finalQs as Question[] }] : finalQs as { title: string; questions: Question[] }[],
+      isOddEstimated: isOdd,
+      totalQuestions: totalQs
+    };
+  }, [previewTest, questions, shuffleQuestions, paperRepeatCount, previewMinimalist, hasOrderChanged, paperSpacingMode]);
 
   // Section & Manual Question States
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
@@ -722,7 +777,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
     if (!previewTest) return;
 
     // Retrieve the exact visible questions in their current order
-    const finalQuestionIds = displayStructure.flatMap(group => 
+    const finalQuestionIds = displayStructure.groups.flatMap(group => 
       group.questions.map(q => q.originalQuestionId || q.id)
     );
 
@@ -1081,10 +1136,25 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">توليد نماذج اختبارات متكافئة لكل مرحلة ومستوى</p>
           </div>
           {!editingTest && (
-            <button onClick={handleStartCreate} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shadow-md cursor-pointer shrink-0">
-              <Plus className="w-4 h-4" />
-              <span>إنشاء اختبار جديد</span>
-            </button>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <button 
+                type="button"
+                onClick={() => setIsCsvImportOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/20 cursor-pointer transition-all shrink-0"
+                title="استيراد وتجهيز اختبار كامل من ملف CSV أو إكسل مع خيارات النماذج وإرفاق الصور"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span>استيراد اختبار كامل (CSV)</span>
+              </button>
+              <button 
+                type="button"
+                onClick={handleStartCreate} 
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shadow-md shadow-sky-600/20 cursor-pointer transition-all shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>إنشاء اختبار جديد</span>
+              </button>
+            </div>
           )}
         </div>
 
@@ -1785,6 +1855,46 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                         </div>
                       </div>
 
+                      {/* Quick Layout Spacing */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">تنسيق تباعد الورقة (توفير الورق):</label>
+                        <div className="grid grid-cols-3 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setPaperSpacingMode('normal')}
+                            className={`py-2 rounded-xl border text-[11px] font-bold transition-all cursor-pointer text-center ${
+                              paperSpacingMode === 'normal'
+                                ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-black shadow-xs'
+                                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            قياسي
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPaperSpacingMode('compact')}
+                            className={`py-2 rounded-xl border text-[11px] font-bold transition-all cursor-pointer text-center ${
+                              paperSpacingMode === 'compact'
+                                ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-black shadow-xs'
+                                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            مضغوط
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPaperSpacingMode('extreme')}
+                            className={`py-2 rounded-xl border text-[11px] font-bold transition-all cursor-pointer text-center ${
+                              paperSpacingMode === 'extreme'
+                                ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-black shadow-xs'
+                                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            مضغوط جداً
+                          </button>
+                        </div>
+                      </div>
+
                       {/* Quick Font Sizing */}
                       <div className="space-y-1.5">
                         <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">حجم الخط السريع:</label>
@@ -1905,9 +2015,9 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                           onChange={e => setPaperRepeatCount(parseInt(e.target.value) as any)}
                           className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
                         >
-                          <option value="0">بدون تكرار (41 سؤال)</option>
-                          <option value="2">سؤالين مكررين (43 سؤال)</option>
-                          <option value="3">3 أسئلة مكررة (44 سؤال - الحد الأقصى)</option>
+                          <option value="0">بدون تكرار إضافي ({previewTest?.model.questionIds.length || 0} سؤال - مطابق للترتيب الأصلي)</option>
+                          <option value="2">سؤالين لفحص الثبات ({(previewTest?.model.questionIds.length || 0) + 2} سؤال)</option>
+                          <option value="3">3 أسئلة لفحص الثبات ({(previewTest?.model.questionIds.length || 0) + 3} سؤال - الحد الأقصى)</option>
                         </select>
                       </div>
 
@@ -1923,17 +2033,43 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                             عرض تعليمات الاختبار
                           </span>
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={ensureEvenPages}
-                            onChange={e => setEnsureEvenPages(e.target.checked)}
-                            className="w-4 h-4 rounded text-sky-600 accent-sky-600"
-                          />
-                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                            ضمان صفحات زوجية (وجه وظهر)
-                          </span>
-                        </label>
+                      </div>
+                    </div>
+
+                    {/* Double-Sided Printing Strategy */}
+                    <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black text-slate-800 dark:text-white">إدارة الصفحات للطباعة (وجه وظهر):</span>
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                          {[
+                            { id: 'auto', label: 'تلقائي ذكي', icon: Sparkles },
+                            { id: 'always', label: 'ورقة بيضاء دوماً', icon: Plus },
+                            { id: 'off', label: 'إيقاف', icon: X }
+                          ].map(item => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setBlankPageStrategy(item.id as any)}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                blankPageStrategy === item.id 
+                                  ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm ring-1 ring-black/5' 
+                                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                              }`}
+                            >
+                              <item.icon className="w-3 h-3" />
+                              <span>{item.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <p className="text-[10px] text-slate-500 leading-relaxed">
+                          {blankPageStrategy === 'auto' 
+                            ? `✓ نظام التوفير الذكي: سيتم إضافة ورقة بيضاء فقط إذا كان الاختبار ${displayStructure.isOddEstimated ? 'فردي الصفحات (لضمان استقلال الطلاب)' : 'زوجي الصفحات (تم توفير الورق بنجاح)'}.` 
+                            : blankPageStrategy === 'always' 
+                            ? 'سيتم فصل كل طالب بورقة بيضاء إضافية دوماً بغض النظر عن عدد الصفحات.'
+                            : 'لن يتم إضافة أي صفحات فارغة (يستخدم للطباعة وجه واحد فقط أو للفرز اليدوي).'}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -2028,9 +2164,9 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                       <span className="text-sm font-black">معاينة حية دقيقة لنظام صفحات A4</span>
                     </div>
                     <div className="flex items-center gap-2">
-                       <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm">
-                         {ensureEvenPages ? '✓ وضع الطباعة المزدوجة (وجه وظهر) مفعل' : 'وضع الطباعة العادية'}
-                       </span>
+                        <span className="text-[10px] font-bold bg-white dark:bg-slate-800 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-sm opacity-70">
+                          {blankPageStrategy !== 'off' ? '✓ وضع الطباعة المزدوجة (وجه وظهر) مفعل' : 'وضع الطباعة العادية'}
+                        </span>
                     </div>
                   </div>
 
@@ -2061,7 +2197,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                                    </div>
                                    <div className="text-left text-[10px] leading-tight font-bold">
                                      <div>الزمن: {previewTest.test.durationMinutes} دقيقة</div>
-                                     <div>الأسئلة: {displayStructure.reduce((acc, g) => acc + g.questions.length, 0)}</div>
+                                     <div>الأسئلة: {displayStructure.totalQuestions}</div>
                                      <div>المستوى: {paperStudentLevel}</div>
                                    </div>
                                  </div>
@@ -2074,10 +2210,10 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
 
                                {/* Simulated Questions on Page 1 */}
                                <div className={previewMinimalist ? 'grid grid-cols-2 gap-4' : 'space-y-4'}>
-                                 {displayStructure[0].questions.slice(0, previewMinimalist ? 8 : 4).map((q, idx) => (
-                                   <div key={q.id} className="border-2 border-slate-300 rounded-xl p-3 bg-white">
+                                 {displayStructure.groups[0]?.questions.slice(0, previewMinimalist ? 8 : 4).map((q, qIdx) => (
+                                   <div key={`${q.id}-page1-${qIdx}`} className="border-2 border-slate-300 rounded-xl p-3 bg-white">
                                       <div className="flex items-center justify-between mb-2 border-b border-slate-100 pb-1">
-                                        <span className="bg-black text-white px-2.5 py-0.5 rounded text-[10px] font-black">سؤال {idx + 1}</span>
+                                        <span className="bg-black text-white px-2.5 py-0.5 rounded text-[10px] font-black">سؤال {qIdx + 1}</span>
                                         <span className="text-[9px] opacity-40 font-mono">#{q.code}</span>
                                       </div>
                                       <p className="font-bold mb-3 leading-relaxed text-[14px]">{q.questionText}</p>
@@ -2102,7 +2238,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                              <div className="flex-1 flex flex-col items-center justify-center border-4 border-dashed border-slate-50 rounded-[3rem]">
                                 <Printer className="w-20 h-20 text-slate-100 mb-6" />
                                 <div className="text-3xl font-black text-slate-200 mb-2">بقية الأسئلة...</div>
-                                <p className="text-slate-300 font-bold">يتم توزيع {displayStructure.reduce((acc, g) => acc + g.questions.length, 0)} سؤالاً على الصفحات تلقائياً</p>
+                                <p className="text-slate-300 font-bold">يتم توزيع {displayStructure.totalQuestions} سؤالاً على الصفحات تلقائياً</p>
                              </div>
                            )}
 
@@ -2118,7 +2254,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                         </div>
 
                         {/* Visual Break with Even Page Logic Indicator */}
-                        {pageIdx === 1 && ensureEvenPages && (
+                        {pageIdx === 1 && blankPageStrategy !== 'off' && (
                            <div className="space-y-4">
                              <div className="h-px bg-slate-300 dark:bg-slate-800 w-full relative my-8">
                                <div className="absolute left-1/2 -translate-x-1/2 -top-4 bg-amber-50 dark:bg-amber-950 px-6 py-2 rounded-full border-2 border-amber-200 dark:border-amber-800 text-[10px] font-black text-amber-700 dark:text-amber-300 flex items-center gap-2 shadow-sm">
@@ -2182,10 +2318,10 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                       <span>كود الاختبار:</span>
                       <span className="font-mono font-black text-indigo-700">#{paperTestCode}</span>
                     </div>
-                    <div className="flex justify-between gap-2">
-                      <span>الأسئلة:</span>
-                      <span className="font-black text-rose-600">{displayStructure.reduce((acc, g) => acc + g.questions.length, 0)} سؤال</span>
-                    </div>
+                      <div className="flex justify-between gap-2">
+                        <span>الأسئلة:</span>
+                        <span className="font-black text-rose-600">{displayStructure.totalQuestions} سؤال</span>
+                      </div>
                   </div>
                 </div>
 
@@ -2230,7 +2366,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
 
               {/* Questions Grid with synchronized proportional font scaling */}
               <div className={previewMinimalist ? 'grid grid-cols-2 gap-3' : 'space-y-3'}>
-                {displayStructure.map((group, gIdx) => (
+                {displayStructure.groups.map((group, gIdx) => (
                   <React.Fragment key={gIdx}>
                     {group.title && (
                       <div className={`${previewMinimalist ? 'col-span-2' : ''} flex items-center gap-2 mb-1.5 mt-3 first:mt-0`}>
@@ -2240,55 +2376,59 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                         <div className="h-px bg-slate-300 flex-1"></div>
                       </div>
                     )}
-                    {group.questions.map((q, idx) => (
-                      <div 
-                        key={q.id} 
-                        className={`question-print-item border-2 border-slate-300 rounded-xl bg-white text-black shadow-2xs ${
-                          paperCompactSpacing ? 'p-2.5 mb-2' : 'p-3.5 mb-3'
-                        }`}
-                        style={{
-                          breakBefore: q.isConsistencyCheck ? 'page' : 'auto',
-                          pageBreakBefore: q.isConsistencyCheck ? 'always' : 'auto'
-                        }}
-                      >
-                        <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-1.5 font-bold">
-                          <div className="flex items-center gap-2">
-                            <span 
-                              className="bg-black text-white px-2.5 py-0.5 rounded-md font-black" 
-                              style={{ fontSize: `${Math.max(9, Math.round(paperQuestionFontSize * 0.8))}px` }}
-                            >
-                              سؤال {idx + 1}
-                            </span>
-                            {/* Question Reorder Buttons in Screen Preview */}
-                            <div className="flex items-center gap-1 no-print">
-                              {idx > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleMoveQuestion(idx, 'up')}
-                                  className="px-1.5 py-0.5 text-[9px] font-bold text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
-                                  title="تقديم السؤال للأعلى في الترتيب"
-                                >
-                                  ▲ للأعلى
-                                </button>
-                              )}
-                              {idx < group.questions.length - 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleMoveQuestion(idx, 'down')}
-                                  className="px-1.5 py-0.5 text-[9px] font-bold text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
-                                  title="تأخير السؤال للأسفل في الترتيب"
-                                >
-                                  ▼ للأسفل
-                                </button>
-                              )}
+                    {group.questions.map((q, qIdx) => {
+                      const priorCount = displayStructure.groups
+                        .slice(0, gIdx)
+                        .reduce((sum, g) => sum + g.questions.length, 0);
+                      const questionNumber = priorCount + qIdx + 1;
+                      return (
+                        <div 
+                          key={`${q.id}-preview-${gIdx}-${qIdx}`} 
+                          className={`question-print-item border-2 border-slate-300 rounded-xl bg-white text-black shadow-2xs ${
+                            paperCompactSpacing ? 'p-2.5 mb-2' : 'p-3.5 mb-3'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-1.5 font-bold">
+                            <div className="flex items-center gap-2">
+                              <span 
+                                className="bg-black text-white px-2.5 py-0.5 rounded-md font-black" 
+                                style={{ fontSize: `${Math.max(9, Math.round(paperQuestionFontSize * 0.8))}px` }}
+                              >
+                                سؤال {questionNumber}
+                              </span>
+                              {/* Question Reorder Buttons in Screen Preview */}
+                              <div className="flex items-center gap-1 no-print">
+                                {qIdx > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveQuestion(qIdx, 'up')}
+                                    className="px-1.5 py-0.5 text-[9px] font-bold text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
+                                    title="تقديم السؤال للأعلى في الترتيب"
+                                  >
+                                    ▲ للأعلى
+                                  </button>
+                                )}
+                                {qIdx < group.questions.length - 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveQuestion(qIdx, 'down')}
+                                    className="px-1.5 py-0.5 text-[9px] font-bold text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
+                                    title="تأخير السؤال للأسفل في الترتيب"
+                                  >
+                                    ▼ للأسفل
+                                  </button>
+                                )}
+                              </div>
                             </div>
+                            {q.isConsistencyCheck && (
+                              <span 
+                                className="no-print text-[9px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded border border-sky-200"
+                                title="سؤال فحص الثبات والتفكير المتأمل (يظهر في المعاينة للمعلم فقط ومخفي تماماً عند الطباعة)"
+                              >
+                                فحص الثبات (للمشرف)
+                              </span>
+                            )}
                           </div>
-                          {q.isConsistencyCheck && (
-                            <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                              (صفحة جديدة - تحقق الثبات)
-                            </span>
-                          )}
-                        </div>
 
                         {/* Question Text */}
                         <p 
@@ -2361,7 +2501,8 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                           ))}
                         </div>
                       </div>
-                    ))}
+                    );
+                  })}
                   </React.Fragment>
                 ))}
               </div>
@@ -2398,10 +2539,10 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
             return (
               <div 
                 key={student.id + '-' + sIdx}
-                className="student-exam-booklet w-full mb-8"
+                className={`student-exam-booklet w-full ${blankPageStrategy !== 'off' ? 'print-force-new-sheet' : ''}`}
                 style={{
-                  pageBreakAfter: isLast ? 'avoid' : 'always',
-                  breakAfter: isLast ? 'avoid' : 'page',
+                  pageBreakAfter: isLast ? 'avoid' : (blankPageStrategy !== 'off' ? undefined : 'always'),
+                  breakAfter: isLast ? 'avoid' : (blankPageStrategy !== 'off' ? undefined : 'page'),
                 }}
               >
                 {/* Printable Header */}
@@ -2442,7 +2583,7 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                       </div>
                       <div className="flex justify-between gap-2">
                         <span>الأسئلة:</span>
-                        <span className="font-black text-rose-600">{displayStructure.reduce((acc, g) => acc + g.questions.length, 0)} سؤال</span>
+                        <span className="font-black text-rose-600">{displayStructure.totalQuestions} سؤال</span>
                       </div>
                     </div>
                   </div>
@@ -2479,8 +2620,8 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                 </div>
 
                 {/* Printable Questions Grid */}
-                <div className={`${previewMinimalist ? 'print-columns-2' : 'print-columns-1'} ${paperCompactSpacing ? 'print-compact-layout' : 'space-y-2'}`}>
-                  {displayStructure.map((group, gIdx) => (
+                <div className={`${previewMinimalist ? 'print-columns-2' : 'print-columns-1'} ${paperSpacingMode === 'compact' ? 'print-compact-layout' : paperSpacingMode === 'extreme' ? 'print-extreme-layout' : 'space-y-2'}`}>
+                  {displayStructure.groups.map((group, gIdx) => (
                     <React.Fragment key={gIdx}>
                       {group.title && (
                         <div className="space-y-2 mb-1.5 mt-3 first:mt-0 print-avoid-break" style={{ gridColumn: 'span 2' }}>
@@ -2490,32 +2631,34 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                           </div>
                         </div>
                       )}
-                      {group.questions.map((q, idx) => (
-                        <div
-                          key={q.id}
-                          className={`question-print-item print-avoid-break border-2 border-slate-500 rounded-lg bg-white text-black ${paperCompactSpacing ? 'p-2 mb-1.5' : 'p-2.5 mb-2.5'}`}
-                          style={{
-                            breakInside: 'avoid',
-                            pageBreakInside: 'avoid',
-                            fontFamily: getFontFamilyCss(paperFontFamily),
-                            fontSize: `${paperQuestionFontSize}px`,
-                            breakBefore: q.isConsistencyCheck ? 'page' : 'auto',
-                            pageBreakBefore: q.isConsistencyCheck ? 'always' : 'auto'
-                          }}
-                        >
-                          <div className="flex items-center justify-between border-b border-slate-300 pb-1 mb-1 font-bold">
-                            <span 
-                              className="bg-black text-white px-2 py-0.5 rounded font-black"
-                              style={{ fontSize: `${Math.max(9, Math.round(paperQuestionFontSize * 0.8))}px` }}
-                            >
-                              سؤال {idx + 1}
-                            </span>
-                            {q.isConsistencyCheck && (
-                              <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                (صفحة جديدة - تحقق الثبات)
+                      {group.questions.map((q, qIdx) => {
+                        const priorCount = displayStructure.groups
+                          .slice(0, gIdx)
+                          .reduce((sum, g) => sum + g.questions.length, 0);
+                        const questionNumber = priorCount + qIdx + 1;
+                        return (
+                          <div
+                            key={`${q.id}-print-${sIdx}-${gIdx}-${qIdx}`}
+                            className={`question-print-item print-avoid-break border-2 border-slate-500 rounded-lg bg-white text-black ${
+                              paperSpacingMode === 'normal' ? 'p-2.5 mb-2.5' : 
+                              paperSpacingMode === 'compact' ? 'p-2 mb-1.5' : 
+                              'p-1.5 mb-1'
+                            }`}
+                            style={{
+                              breakInside: 'avoid',
+                              pageBreakInside: 'avoid',
+                              fontFamily: getFontFamilyCss(paperFontFamily),
+                              fontSize: `${paperQuestionFontSize}px`,
+                            }}
+                          >
+                            <div className="flex items-center justify-between border-b border-slate-300 pb-1 mb-1 font-bold">
+                              <span 
+                                className="bg-black text-white px-2 py-0.5 rounded font-black"
+                                style={{ fontSize: `${Math.max(9, Math.round(paperQuestionFontSize * 0.8))}px` }}
+                              >
+                                سؤال {questionNumber}
                               </span>
-                            )}
-                          </div>
+                            </div>
                           
                           <p 
                             className="font-bold leading-snug mb-1 text-black"
@@ -2587,21 +2730,29 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
                             ))}
                           </div>
                         </div>
-                      ))}
+                      );
+                    })}
                     </React.Fragment>
                   ))}
                 </div>
 
                 <div className="mt-2 text-center text-[8px] font-mono text-slate-400">ID: {previewTest.model.id.slice(-8).toUpperCase()} | Page {sIdx + 1}</div>
 
-                {/* Even Page Logic: Add a blank page if this student's booklet ends on an odd page */}
-                {ensureEvenPages && (
-                  <div className="print-only blank-page no-screen">
-                    <div className="flex flex-col items-center gap-2">
-                       <FileText className="w-12 h-12 text-slate-100 mb-2" />
-                       <span>ورقة بيضاء (للطباعة وجه وظهر)</span>
-                    </div>
+                {/* Smart Page Management Indicator */}
+                {(blankPageStrategy === 'always' || (blankPageStrategy === 'auto' && displayStructure.isOddEstimated)) && (
+                  <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-3xl m-10 no-print flex flex-col items-center gap-3 bg-indigo-50/30">
+                    <Sparkles className="w-10 h-10 text-indigo-500" />
+                    <div className="text-lg font-black text-slate-800">سيتم إضافة "ورقة بيضاء" هنا تلقائياً</div>
+                    <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                      بما أن الاختبار {displayStructure.isOddEstimated ? 'قد يحتوي على عدد فردي من الصفحات' : 'يتطلب فصلاً كاملاً'}، سيقوم النظام بإضافة صفحة فارغة لضمان استقلال كل طالب عند الطباعة وجه وظهر.
+                    </p>
+                    <div className="px-3 py-1 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded-full border border-indigo-200">توفير الورق الذكي فعال ✓</div>
                   </div>
+                )}
+                
+                {/* Real hidden element that forces the printer to insert a blank page if needed */}
+                {blankPageStrategy !== 'off' && (
+                   <div className="print-only print-force-new-sheet h-0 overflow-hidden"></div>
                 )}
               </div>
             );
@@ -2622,6 +2773,30 @@ export const TestBuilder: React.FC<TestBuilderProps> = ({
           }}
           onCancel={() => setTestToDelete(null)}
         />
+      )}
+
+      {/* CSV Test Import Modal */}
+      {isCsvImportOpen && (
+        <CsvTestImportModal
+          isOpen={isCsvImportOpen}
+          onClose={() => setIsCsvImportOpen(false)}
+          existingTests={tests}
+          onSaveTest={onSaveTest}
+          onSaveQuestion={onSaveQuestion}
+          onBulkAddQuestions={onBulkAddQuestions}
+          onSuccess={(title, count) => {
+            setCsvImportToast(`🎉 تم بنجاح استيراد وتجهيز اختبار "${title}" بالكامل متضمناً (${count}) سؤالاً مع كافة الخيارات والصور!`);
+            setTimeout(() => setCsvImportToast(null), 6000);
+          }}
+        />
+      )}
+
+      {/* CSV Success Toast Notification */}
+      {csvImportToast && (
+        <div className="fixed bottom-6 left-6 z-50 bg-emerald-700 text-white text-xs font-black px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-2.5 animate-in slide-in-from-bottom-5 border-2 border-emerald-500">
+          <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-200" />
+          <span>{csvImportToast}</span>
+        </div>
       )}
     </>
   );

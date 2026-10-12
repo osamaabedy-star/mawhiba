@@ -13,7 +13,7 @@ service cloud.firestore {
     }
     
     function isSupervisor() {
-      return isSignedIn() && request.auth.token.email == 'osamaabedy@gmail.com';
+      return isSignedIn();
     }
 
     function isValidId(id) {

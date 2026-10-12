@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { RotateCcw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { 
   UserRole, 
   Question, 
@@ -20,7 +21,8 @@ import {
   deleteTestFromStorageAndFirestore,
   unmarkTestAsDeleted,
   saveToFirestore,
-  removeFromFirestore
+  removeFromFirestore,
+  removeMultipleFromFirestore
 } from './services/storage';
 import { auth, logout } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -51,6 +53,14 @@ export default function App() {
   });
   const [isCloudLoading, setIsCloudLoading] = useState(false);
   const [user, setUser] = useState(auth.currentUser);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      setToastMessage(prev => (prev?.text === text ? null : prev));
+    }, 4000);
+  };
 
   // Auth Monitoring
   useEffect(() => {
@@ -143,6 +153,9 @@ export default function App() {
   const [zipGradeTargetTestId, setZipGradeTargetTestId] = useState<string | undefined>(undefined);
   const [zipGradeTargetGrade, setZipGradeTargetGrade] = useState<GradeLevel | undefined>(undefined);
 
+  // Global Confirmation states
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
   // Quick switch role
   const handleSetRole = (newRole: UserRole) => {
     setRole(newRole);
@@ -165,6 +178,31 @@ export default function App() {
     setExamModelId(modelId || dbState.tests[0]?.models[0]?.id);
   };
 
+  // Direct Entry by Test Code (e.g. TEST-01 or Model Code)
+  const handleLaunchExamByCode = (rawCode: string) => {
+    const code = rawCode.trim().toUpperCase();
+    if (!code) {
+      showToast('يرجى كتابة كود الاختبار للدخول', 'error');
+      return;
+    }
+    for (const t of dbState.tests) {
+      for (const m of t.models) {
+        const mCode = (m.code || m.id.slice(-6)).toUpperCase();
+        if (mCode === code || (t.code && t.code.toUpperCase() === code) || m.id.toUpperCase() === code) {
+          handleLaunchStudentExam(undefined, t.id, m.id);
+          showToast(`تم فتح الاختبار: ${t.title} (${m.name})`, 'success');
+          return;
+        }
+      }
+      if (t.code && t.code.toUpperCase() === code) {
+        handleLaunchStudentExam(undefined, t.id, t.models[0]?.id);
+        showToast(`تم فتح الاختبار: ${t.title}`, 'success');
+        return;
+      }
+    }
+    showToast(`لم يتم العثور على اختبار برمز أو كود "${code}". يرجى التأكد من الرمز.`, 'error');
+  };
+
   // Finish Exam Submission
   const handleFinishExam = async (newSubmission: ExamSubmission) => {
     try {
@@ -183,11 +221,10 @@ export default function App() {
         ...prev,
         submissions: [newSubmission, ...prev.submissions],
         students: prev.students.map(s => s.id === newSubmission.studentId ? { ...s, status: 'completed' as const } : s),
-        // Question stats update could also be done here but it's complex for firestore atomic updates
-        // We'll let the full sync handle stats occasionally or implement atomic increments later
       }));
+      showToast('تم تسليم الاختبار وحفظ النتيجة بنجاح!', 'success');
     } catch (err) {
-      alert('حدث خطأ أثناء حفظ النتيجة في السحابة. يرجى المحاولة مرة أخرى.');
+      showToast('حدث خطأ أثناء حفظ النتيجة في السحابة. يرجى المحاولة مرة أخرى.', 'error');
     }
   };
 
@@ -238,16 +275,15 @@ export default function App() {
     try {
       await saveToFirestore('questions', savedQ.id, savedQ);
       setDbState(prev => {
-        const exists = prev.questions.some(q => q.id === savedQ.id);
+        // Enforce absolute uniqueness by filtering out any existing question with the same ID
+        const otherQuestions = prev.questions.filter(q => q.id !== savedQ.id);
         return {
           ...prev,
-          questions: exists
-            ? prev.questions.map(q => q.id === savedQ.id ? savedQ : q)
-            : [savedQ, ...prev.questions],
+          questions: [savedQ, ...otherQuestions],
         };
       });
     } catch (err) {
-      alert('فشل حفظ السؤال في السحابة.');
+      showToast('فشل حفظ السؤال في السحابة.', 'error');
     }
   };
 
@@ -258,8 +294,9 @@ export default function App() {
         ...prev,
         questions: prev.questions.filter(q => q.id !== id),
       }));
+      showToast('تم حذف السؤال بنجاح', 'success');
     } catch (err) {
-      alert('فشل حذف السؤال من السحابة.');
+      showToast('فشل حذف السؤال من السحابة.', 'error');
     }
   };
 
@@ -278,20 +315,27 @@ export default function App() {
         ...prev,
         questions: [duplicated, ...prev.questions],
       }));
+      showToast('تم تكرار السؤال بنجاح', 'success');
     } catch (err) {
-      alert('فشل تكرار السؤال في السحابة.');
+      showToast('فشل تكرار السؤال في السحابة.', 'error');
     }
   };
 
   const handleBulkAddQuestions = async (newQuestions: Question[]) => {
     try {
       await Promise.all(newQuestions.map(q => saveToFirestore('questions', q.id, q)));
-      setDbState(prev => ({
-        ...prev,
-        questions: [...newQuestions, ...prev.questions],
-      }));
+      setDbState(prev => {
+        const newIds = new Set(newQuestions.map(q => q.id));
+        // Filter out existing questions that might have these IDs
+        const existingOthers = prev.questions.filter(q => !newIds.has(q.id));
+        return {
+          ...prev,
+          questions: [...newQuestions, ...existingOthers],
+        };
+      });
+      showToast(`تمت إضافة ${newQuestions.length} سؤال بنجاح!`, 'success');
     } catch (err) {
-      alert('فشل إضافة الأسئلة دفعة واحدة إلى السحابة.');
+      showToast('فشل إضافة الأسئلة دفعة واحدة إلى السحابة.', 'error');
     }
   };
 
@@ -309,8 +353,9 @@ export default function App() {
             : [savedTest, ...prev.tests],
         };
       });
+      showToast('تم حفظ الاختبار بنجاح في السحابة', 'success');
     } catch (err) {
-      alert('فشل حفظ الاختبار في السحابة.');
+      showToast('فشل حفظ الاختبار في السحابة.', 'error');
     }
   };
 
@@ -330,8 +375,9 @@ export default function App() {
         ...prev,
         students: [newStudent, ...prev.students],
       }));
+      showToast('تمت إضافة الطالب بنجاح', 'success');
     } catch (err) {
-      alert('فشل إضافة الطالب إلى السحابة.');
+      showToast('فشل إضافة الطالب إلى السحابة.', 'error');
     }
   };
 
@@ -342,15 +388,14 @@ export default function App() {
         ...prev,
         students: [...newStudents, ...prev.students],
       }));
+      showToast(`تمت إضافة ${newStudents.length} طالباً بنجاح`, 'success');
     } catch (err) {
-      alert('فشل إضافة الطلاب إلى السحابة.');
+      showToast('فشل إضافة الطلاب إلى السحابة.', 'error');
     }
   };
 
   const handleUpdateMultipleStudents = async (updatedStudents: Student[]) => {
     try {
-      // For multiple, we could use a batch or individual calls. 
-      // For simplicity and matching user request "directly to firestore", we'll do individual await in a loop or Promise.all
       await Promise.all(updatedStudents.map(s => saveToFirestore('students', s.id, s)));
       
       setDbState(prev => {
@@ -360,8 +405,9 @@ export default function App() {
           students: prev.students.map(s => updateMap.get(s.id) || s),
         };
       });
+      showToast('تم تحديث بيانات الطلاب بنجاح', 'success');
     } catch (err) {
-      alert('حدث خطأ أثناء تحديث بيانات الطلاب في السحابة.');
+      showToast('حدث خطأ أثناء تحديث بيانات الطلاب في السحابة.', 'error');
     }
   };
 
@@ -383,35 +429,38 @@ export default function App() {
             : prev.submissions
         };
       });
+      showToast('تم تحديث بيانات الطالب بنجاح', 'success');
     } catch (err) {
-      alert('فشل تحديث بيانات الطالب في السحابة.');
+      showToast('فشل تحديث بيانات الطالب في السحابة.', 'error');
     }
   };
 
   const handleDeleteStudent = async (studentId: string) => {
+    setDbState(prev => ({
+      ...prev,
+      students: prev.students.filter(s => s.id !== studentId),
+      submissions: prev.submissions.filter(sub => sub.studentId !== studentId)
+    }));
+    showToast('تم حذف الطالب بنجاح', 'success');
     try {
       await removeFromFirestore('students', studentId);
-      setDbState(prev => ({
-        ...prev,
-        students: prev.students.filter(s => s.id !== studentId),
-        submissions: prev.submissions.filter(sub => sub.studentId !== studentId)
-      }));
     } catch (err) {
-      alert('فشل حذف الطالب من السحابة.');
+      console.warn('Background sync error for delete student:', err);
     }
   };
 
   const handleDeleteMultipleStudents = async (studentIds: string[]) => {
     const idSet = new Set(studentIds);
+    setDbState(prev => ({
+      ...prev,
+      students: prev.students.filter(s => !idSet.has(s.id)),
+      submissions: prev.submissions.filter(sub => !idSet.has(sub.studentId))
+    }));
+    showToast(`تم حذف ${studentIds.length} طالباً بنجاح`, 'success');
     try {
-      await Promise.all(studentIds.map(id => removeFromFirestore('students', id)));
-      setDbState(prev => ({
-        ...prev,
-        students: prev.students.filter(s => !idSet.has(s.id)),
-        submissions: prev.submissions.filter(sub => !idSet.has(sub.studentId))
-      }));
+      await removeMultipleFromFirestore('students', studentIds);
     } catch (err) {
-      alert('فشل حذف الطلاب من السحابة.');
+      console.warn('Background sync error for batch delete:', err);
     }
   };
 
@@ -432,8 +481,9 @@ export default function App() {
         ...prev,
         submissions: prev.submissions.map(s => s.id === submissionId ? updatedSub : s),
       }));
+      showToast('تم تحديث حالة الترشيح بنجاح', 'success');
     } catch (err) {
-      alert('فشل تحديث حالة الترشيح في السحابة.');
+      showToast('فشل تحديث حالة الترشيح في السحابة.', 'error');
     }
   };
 
@@ -451,21 +501,21 @@ export default function App() {
         ...prev,
         settings: newSettings,
       }));
+      showToast('تم حفظ الإعدادات بنجاح', 'success');
     } catch (err) {
-      alert('فشل حفظ الإعدادات في السحابة.');
+      showToast('فشل حفظ الإعدادات في السحابة.', 'error');
     }
   };
 
   const handleResetAllData = async () => {
-    if (!confirm('⚠️ تحذير: سيتم حذف كافة البيانات المسجلة والنتائج وإعادة النظام للوضع الافتراضي. هل أنت متأكد؟')) return;
-    
     const defaults = resetDatabaseToDefaults();
     try {
       await syncDatabaseToFirestore(defaults);
       setDbState(defaults);
-      alert('تم إعادة ضبط كافة البيانات بنجاح.');
+      setIsResetConfirmOpen(false);
+      showToast('تم إعادة ضبط كافة البيانات بنجاح.', 'success');
     } catch (err) {
-      alert('فشل إعادة الضبط في السحابة.');
+      showToast('فشل إعادة الضبط في السحابة.', 'error');
     }
   };
 
@@ -474,9 +524,9 @@ export default function App() {
       await syncDatabaseToFirestore(imported);
       setDbState(imported);
       saveDatabase(imported);
-      alert('تم استيراد قاعدة البيانات بنجاح.');
+      showToast('تم استيراد قاعدة البيانات بنجاح.', 'success');
     } catch (err) {
-      alert('فشل استيراد البيانات إلى السحابة.');
+      showToast('فشل استيراد البيانات إلى السحابة.', 'error');
     }
   };
 
@@ -498,9 +548,9 @@ export default function App() {
         students: prev.students.map(s => s.id === studentId ? updatedStudent : s),
         submissions: prev.submissions.filter(sub => sub.studentId !== studentId)
       }));
-      console.log(`Student ${student.fullName} has been reset for re-testing.`);
+      showToast(`تمت إعادة ضبط اختبار الطالب ${student.fullName} بنجاح`, 'success');
     } catch (err) {
-      alert('فشل إعادة ضبط اختبار الطالب في السحابة.');
+      showToast('فشل إعادة ضبط اختبار الطالب في السحابة.', 'error');
     }
   };
 
@@ -529,9 +579,9 @@ export default function App() {
           students: updatedStudents,
         };
       });
-      console.log('ZipGrade import synced to cloud successfully.');
+      showToast('تمت مزامنة بيانات ZipGrade بنجاح', 'success');
     } catch (err) {
-      alert('حدث خطأ أثناء مزامنة بيانات ZipGrade مع السحابة.');
+      showToast('حدث خطأ أثناء مزامنة بيانات ZipGrade مع السحابة.', 'error');
     }
   };
 
@@ -616,6 +666,7 @@ export default function App() {
               <HomePortal
                 settings={dbState.settings}
                 onEnterStudent={() => handleLaunchStudentExam()}
+                onEnterByCode={(code) => handleLaunchExamByCode(code)}
                 onEnterSupervisor={() => handleRequestTab('dashboard')}
                 onOpenTests={() => handleRequestTab('test_builder')}
                 onOpenResults={() => handleRequestTab('results')}
@@ -660,6 +711,7 @@ export default function App() {
                 onOpenZipGradeForTest={(tId) => handleOpenZipGrade(tId)}
                 onEditQuestion={handleEditQuestion}
                 onSaveQuestion={handleSaveQuestion}
+                onBulkAddQuestions={handleBulkAddQuestions}
                 onAddMultipleStudents={handleAddMultipleStudents}
                 onUpdateMultipleStudents={handleUpdateMultipleStudents}
               />
@@ -686,6 +738,7 @@ export default function App() {
               <StudentManager
                 students={dbState.students}
                 tests={dbState.tests}
+                submissions={dbState.submissions}
                 onAddStudent={handleAddStudent}
                 onAddMultipleStudents={handleAddMultipleStudents}
                 onUpdateStudent={handleUpdateStudent}
@@ -694,6 +747,7 @@ export default function App() {
                 onLaunchExamForStudent={(st, tId, mId) => handleLaunchStudentExam(st, tId, mId)}
                 onResetStudentTest={handleResetStudentTest}
                 onDeleteMultipleStudents={handleDeleteMultipleStudents}
+                onManualFinishExam={handleFinishExam}
               />
             )}
 
@@ -735,7 +789,7 @@ export default function App() {
               <SettingsView
                 settings={dbState.settings}
                 onSaveSettings={handleSaveSettings}
-                onResetAllData={handleResetAllData}
+                onResetAllData={() => setIsResetConfirmOpen(true)}
                 fullDatabaseState={dbState}
                 onImportDatabase={handleImportDatabase}
               />
@@ -773,6 +827,38 @@ export default function App() {
           </span>
         </div>
       </footer>
+      {/* Global Reset Confirmation Modal */}
+      {isResetConfirmOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-md w-full border border-rose-200 dark:border-rose-900 shadow-2xl space-y-6 animate-in zoom-in-95">
+            <div className="w-16 h-16 rounded-2xl bg-rose-100 dark:bg-rose-950 text-rose-600 flex items-center justify-center mx-auto">
+              <RotateCcw className="w-8 h-8" />
+            </div>
+            <div className="text-center">
+              <h4 className="text-xl font-black text-slate-900 dark:text-white">إعادة ضبط المنصة بالكامل؟</h4>
+              <p className="text-sm text-slate-500 mt-3 leading-relaxed">
+                ⚠️ تحذير: هذا الإجراء سيقوم بحذف كافة الأسئلة والطلاب والاختبارات والنتائج التي قمت بإضافتها، وسيعيد النظام إلى حالته الأصلية مع البيانات الافتراضية.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3">
+              <button onClick={handleResetAllData} className="w-full py-3 rounded-xl bg-rose-600 text-white font-black text-sm shadow-lg shadow-rose-600/20">نعم، متأكد من الحذف والضبط</button>
+              <button onClick={() => setIsResetConfirmOpen(false)} className="w-full py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm">تراجع، لا تحذف شيئاً</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Floating Global Toast Notification */}
+      {toastMessage && (
+        <div className={`fixed bottom-6 right-6 z-[250] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs font-black animate-in slide-in-from-bottom-5 ${
+          toastMessage.type === 'success' ? 'bg-emerald-600 text-white' :
+          toastMessage.type === 'error' ? 'bg-rose-600 text-white' :
+          'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+        }`}>
+          {toastMessage.type === 'success' && <CheckCircle2 className="w-5 h-5 shrink-0" />}
+          {toastMessage.type === 'error' && <AlertCircle className="w-5 h-5 shrink-0" />}
+          <span>{toastMessage.text}</span>
+        </div>
+      )}
     </div>
   );
 }

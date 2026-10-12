@@ -39,6 +39,8 @@ interface StudentManagerProps {
   onLaunchExamForStudent: (student: Student, testId: string, modelId?: string) => void;
   onResetStudentTest?: (studentId: string) => void;
   onDeleteMultipleStudents?: (studentIds: string[]) => void;
+  onManualFinishExam?: (submission: any) => void;
+  submissions: any[];
 }
 
 /**
@@ -48,6 +50,7 @@ interface StudentManagerProps {
 export const StudentManager: React.FC<StudentManagerProps> = ({
   students,
   tests,
+  submissions,
   onAddStudent,
   onAddMultipleStudents,
   onUpdateStudent,
@@ -56,6 +59,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   onLaunchExamForStudent,
   onResetStudentTest,
   onDeleteMultipleStudents,
+  onManualFinishExam,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -94,8 +98,62 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   // Assign Test to Classes Modal state
   const [isAssignClassModalOpen, setIsAssignClassModalOpen] = useState(false);
+  
+  // Confirmation states
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [studentToResetState, setStudentToResetState] = useState<Student | null>(null);
+  const [gradingStudent, setGradingStudent] = useState<Student | null>(null);
+  const [gradingTestId, setGradingTestId] = useState('');
+  const [gradingModelId, setGradingModelId] = useState('');
+  const [manualTotalScore, setManualTotalScore] = useState(0);
+
+  const handleManualGradeSubmit = () => {
+    if (!gradingStudent || !gradingTestId || !gradingModelId) return;
+
+    const test = tests.find(t => t.id === gradingTestId);
+    if (!test) return;
+
+    const model = test.models.find(m => m.id === gradingModelId);
+    if (!model) return;
+
+    const maxScore = model.questionIds.length;
+    const percentage = Math.round((manualTotalScore / maxScore) * 100);
+
+    const submission = {
+      id: `sub_manual_${Date.now()}`,
+      studentId: gradingStudent.id,
+      testId: gradingTestId,
+      modelId: gradingModelId,
+      startTime: new Date().toISOString(),
+      endTime: new Date().toISOString(),
+      timeSpentSeconds: 0,
+      totalScore: manualTotalScore,
+      maxScore: maxScore,
+      percentage: percentage,
+      totalQuestions: maxScore,
+      correctAnswersCount: manualTotalScore,
+      wrongAnswersCount: maxScore - manualTotalScore,
+      unansweredCount: 0,
+      skillResults: {}, // Simplified for manual entry
+      difficultyResults: {},
+      answers: {},
+      candidateStatus: percentage >= 80 ? 'nominated_preliminary' : 'not_nominated',
+      strengths: [],
+      areasToDevelop: [],
+    };
+
+    onManualFinishExam?.(submission);
+    setFeedbackToast(`✅ تم رصد درجة الطالب ${gradingStudent.fullName} بنجاح (${manualTotalScore}/${maxScore})`);
+    setTimeout(() => setFeedbackToast(null), 4000);
+    setGradingStudent(null);
+  };
+  const [classToDelete, setClassToDelete] = useState<{ grade: GradeLevel; classroom: string } | null>(null);
+  const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
   const [targetAssignTestId, setTargetAssignTestId] = useState<string>('');
   const [selectedClassKeys, setSelectedClassKeys] = useState<string[]>([]);
+  const [selectedStudentIdsForBatch, setSelectedStudentIdsForBatch] = useState<string[]>([]);
+  const [purgeSelectedClassKeys, setPurgeSelectedClassKeys] = useState<string[]>([]);
+  const [isBatchDeleteModalOpen, setIsBatchDeleteModalOpen] = useState(false);
 
   // Unique classes / sections detected from existing students
   const uniqueClasses = useMemo(() => {
@@ -523,11 +581,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
           setFeedbackToast(`🎉 تم استيراد وتوزيع ${newStudents.length} طالباً بنجاح حسب صفوفهم بالإكسل: (${summaryList})`);
           setTimeout(() => setFeedbackToast(null), 7000);
         } else {
-          alert('لم يتم العثور على أي أسماء صالحة في ملف الإكسل. يرجى التأكد من وجود عمود (الاسم) أو (اسم الطالب).');
+          setFeedbackToast('لم يتم العثور على أي أسماء صالحة في ملف الإكسل. يرجى التأكد من وجود عمود (الاسم) أو (اسم الطالب).');
+          setTimeout(() => setFeedbackToast(null), 5000);
         }
       } catch (err) {
         console.error(err);
-        alert('حدث خطأ أثناء قراءة ملف الإكسل. تأكد من الصيغة الصحيحة للملف.');
+        setFeedbackToast('حدث خطأ أثناء قراءة ملف الإكسل. تأكد من الصيغة الصحيحة للملف.');
+        setTimeout(() => setFeedbackToast(null), 5000);
       } finally {
         setIsImporting(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -708,7 +768,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       setFeedbackToast(`🎉 تم بنجاح تصحيح وتوزيع ${fixedCount} طالباً حسب فصولهم: (${summary})`);
       setTimeout(() => setFeedbackToast(null), 7000);
     } else {
-      alert('جميع صفوف الطلاب مطابقة لفصولهم الحالية ولا توجد أي صفوف تحتاج لتصحيح.');
+      setFeedbackToast('جميع صفوف الطلاب مطابقة لفصولهم الحالية ولا توجد أي صفوف تحتاج لتصحيح.');
+      setTimeout(() => setFeedbackToast(null), 4000);
     }
   };
 
@@ -738,7 +799,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   const handleCommitBulkImport = () => {
     if (parsedBulkStudents.length === 0) {
-      alert('لم يتم التعرف على أي أسماء صالحة. يرجى لصق قائمة الأسماء سطراً بسطر.');
+      setFeedbackToast('لم يتم التعرف على أي أسماء صالحة. يرجى لصق قائمة الأسماء سطراً بسطر.');
+      setTimeout(() => setFeedbackToast(null), 4000);
       return;
     }
 
@@ -798,11 +860,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   // Commit assigning the selected test to all students belonging to the chosen classes
   const handleCommitAssignTestToClasses = () => {
     if (!targetAssignTestId) {
-      alert('يرجى اختيار الاختبار المراد إسناده أولاً');
+      setFeedbackToast('يرجى اختيار الاختبار المراد إسناده أولاً');
+      setTimeout(() => setFeedbackToast(null), 4000);
       return;
     }
     if (selectedClassKeys.length === 0) {
-      alert('يرجى تحديد فصل دراسي واحد على الأقل');
+      setFeedbackToast('يرجى تحديد فصل دراسي واحد على الأقل');
+      setTimeout(() => setFeedbackToast(null), 4000);
       return;
     }
 
@@ -826,6 +890,34 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     setFeedbackToast(`✅ تم بنجاح إسناد اختبار (${test?.title || 'المحدد'}) لجميع طلاب ${affectedClasses.length} فصول (${updatedStudents.length} طالباً)!`);
     setTimeout(() => setFeedbackToast(null), 4500);
     setIsAssignClassModalOpen(false);
+  };
+
+  const handlePurgeNonMiddleClasses = () => {
+    const nonMiddleIds = students
+      .filter(s => {
+        const g = s.grade || s.gradeLevel || '';
+        const c = s.classroom || '';
+        const isMiddle = g === 'g1_middle' || g === 'g2_middle' || g === 'g3_middle' || c.includes('متوسط');
+        return !isMiddle;
+      })
+      .map(s => s.id);
+
+    if (nonMiddleIds.length === 0) {
+      setFeedbackToast('لا يوجد أي طلاب من المرحلة الابتدائية حالياً.');
+      setTimeout(() => setFeedbackToast(null), 3000);
+      setIsPurgeModalOpen(false);
+      return;
+    }
+
+    if (onDeleteMultipleStudents) {
+      onDeleteMultipleStudents(nonMiddleIds);
+    } else {
+      nonMiddleIds.forEach(id => onDeleteStudent(id));
+    }
+
+    setIsPurgeModalOpen(false);
+    setFeedbackToast(`🎉 تم حذف ${nonMiddleIds.length} طالباً وفصولهم بنجاح! تم الإبقاء فقط على فصول المرحلة المتوسطة.`);
+    setTimeout(() => setFeedbackToast(null), 5000);
   };
 
   const SAUDI_BOY_FIRST_NAMES = [
@@ -877,8 +969,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     else if (gr === 'g3_middle') defaultSec = '3/م/1';
     setClassSection(defaultSec);
     setClassStudentCount(25);
-    const initialRoster = generateClassRoster(25);
-    setClassNamesText(initialRoster.join('\n'));
+    setClassNamesText('');
     const matchingTest = tests.find(t => t.targetGrades.includes(gr)) || tests[0];
     setClassAssignedTestId(matchingTest?.id || '');
     setIsAddClassModalOpen(true);
@@ -894,7 +985,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const handleCommitAddClass = () => {
     const lines = classNamesText.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length === 0) {
-      alert('يرجى التأكد من وجود أسماء للطلاب');
+      setFeedbackToast('يرجى التأكد من وجود أسماء للطلاب');
+      setTimeout(() => setFeedbackToast(null), 4000);
       return;
     }
 
@@ -1008,10 +1100,20 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
           <button
             onClick={handleAutoFixExistingGrades}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/25 transition-all cursor-pointer"
-            title="تصحيح وتوزيع صفوف جميع الطلاب المسجلين حالياً تلقائياً بناءً على فصولهم (مثال: فصل 4/أ إلى الصف الرابع)"
+            title="تصحيح وتوزيع صفوف جميع الطلاب المسجلين حالياً تلقائياً بناءً على فصولهم"
           >
             <Sparkles className="w-4 h-4" />
             <span>تصحيح وتوزيع الصفوف تلقائياً</span>
+          </button>
+
+          {/* PURGE / DELETE UNWANTED CLASSES & STUDENTS */}
+          <button
+            onClick={() => setIsPurgeModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-extrabold text-xs shadow-xs transition-all cursor-pointer"
+            title="حذف الفصول والطلاب غير المرغوب فيهم أو تفريغ القائمة بالكامل"
+          >
+            <Trash2 className="w-4 h-4 text-rose-600" />
+            <span>تنظيف وحذف الفصول والطلاب</span>
           </button>
         </div>
 
@@ -1075,60 +1177,91 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       {/* شريط الفصول وتوزيع الطلاب مع إمكانية تعديل صف الفصل بنقرة واحدة */}
       {uniqueClasses.length > 0 && (
         <div className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
             <span className="font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
               <Users className="w-4 h-4 text-sky-600" />
               <span>فصول الطلاب المسجلة ({uniqueClasses.length} فصول - إجمالي {students.length} طالباً):</span>
             </span>
-            <span className="text-[11px] text-slate-500 font-bold">💡 يمكنك تعديل صف الفصل أو حذفه كاملاً:</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setIsPurgeModalOpen(true)}
+                className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                title="خيارات حذف الفصول غير المرغوبة أو الإبقاء على الفصول المضافة"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>حذف وتنظيف الفصول الزائدة ({uniqueClasses.length})</span>
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-3 pt-1 max-h-56 overflow-y-auto custom-scrollbar">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pt-1 max-h-96 overflow-y-auto custom-scrollbar">
             {uniqueClasses.map(c => (
               <div
                 key={c.key}
-                className="flex items-center gap-2.5 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm text-xs transition-all hover:border-indigo-200"
+                className="flex flex-col gap-2.5 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm text-xs transition-all hover:border-sky-300 hover:shadow-md group"
               >
-                <div className="flex flex-col">
-                  <span className="text-slate-900 dark:text-white font-black">فصل {c.classroom}</span>
-                  <span className="text-[10px] text-slate-500 font-bold">{c.count} طالباً</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-slate-900 dark:text-white font-black text-sm">فصل {c.classroom}</span>
+                    <span className="text-[10px] text-slate-500 font-bold">{c.count} طالباً مسجلاً</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClassToDelete({ grade: c.grade, classroom: c.classroom });
+                    }}
+                    className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 dark:text-rose-400 transition-all cursor-pointer border border-rose-100 dark:border-rose-800 opacity-0 group-hover:opacity-100"
+                    title="حذف الفصل"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
                 
-                <div className="h-8 w-[1px] bg-slate-100 dark:bg-slate-700 mx-1"></div>
-                
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900/60 p-1.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                  <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap">الصف:</span>
                   <select
                     value={c.grade}
                     onChange={e => handleBatchChangeClassGrade(c.key, e.target.value as GradeLevel)}
                     title="تغيير صف جميع طلاب هذا الفصل"
-                    className="text-[11px] font-black text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800 rounded-xl px-2.5 py-1 cursor-pointer hover:bg-sky-100 transition-colors"
+                    className="flex-1 text-[11px] font-black text-sky-700 dark:text-sky-300 bg-white dark:bg-slate-800 border border-sky-100 dark:border-sky-800 rounded-lg px-2 py-1 cursor-pointer hover:border-sky-300 transition-colors outline-none"
                   >
                     {(Object.keys(GRADE_LABELS) as GradeLevel[]).map(g => (
                       <option key={g} value={g}>{GRADE_LABELS[g]}</option>
                     ))}
                   </select>
-
-                  <button
-                    onClick={() => {
-                      if (confirm(`⚠️ تحذير: هل أنت متأكد من حذف كافة طلاب فصل ${c.classroom}؟ سيتم حذف (${c.count} طالباً) نهائياً من النظام.`)) {
-                        if (onDeleteMultipleStudents) {
-                          onDeleteMultipleStudents(c.studentIds);
-                        } else {
-                          c.studentIds.forEach(id => onDeleteStudent(id));
-                        }
-                        setFeedbackToast(`🗑️ تم حذف فصل ${c.classroom} بالكامل (${c.count} طالباً)`);
-                        setTimeout(() => setFeedbackToast(null), 5000);
-                      }
-                    }}
-                    className="p-1.5 px-2 rounded-xl text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer border border-transparent hover:border-rose-200 flex items-center gap-1"
-                    title="حذف هذا الفصل بجميع طلابه"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span className="text-[9px] font-black uppercase">حذف الفصل</span>
-                  </button>
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* شريط الإجراءات الجماعية عند تحديد طلاب */}
+      {selectedStudentIdsForBatch.length > 0 && (
+        <div className="p-3 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+            <span className="font-extrabold text-indigo-900 dark:text-indigo-200">
+              تم تحديد ({selectedStudentIdsForBatch.length}) طالباً من الجدول
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsBatchDeleteModalOpen(true)}
+              className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>حذف الطلاب المحددين ({selectedStudentIdsForBatch.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedStudentIdsForBatch([])}
+              className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-50 cursor-pointer"
+            >
+              إلغاء التحديد
+            </button>
           </div>
         </div>
       )}
@@ -1137,9 +1270,24 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-right text-xs">
-            {/* رأس الجدول: | الطالب | الصف | الفصل | الرقم | الاختبارات | الإجراءات | */}
+            {/* رأس الجدول: | تحديد | الطالب | الصف | الفصل | الرقم | الاختبارات | الإجراءات | */}
             <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
               <tr>
+                <th className="w-10 px-3 py-3.5 text-center">
+                  <input
+                    type="checkbox"
+                    checked={filteredStudents.length > 0 && selectedStudentIdsForBatch.length === filteredStudents.length}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedStudentIdsForBatch(filteredStudents.map(s => s.id));
+                      } else {
+                        setSelectedStudentIdsForBatch([]);
+                      }
+                    }}
+                    className="w-4 h-4 rounded text-sky-600 accent-sky-600 cursor-pointer"
+                    title="تحديد الكل / إلغاء تحديد الكل"
+                  />
+                </th>
                 <th className="px-5 py-3.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" onClick={() => handleSort('fullName')}>
                   <div className="flex items-center gap-1 justify-end">
                     <span>الطالب</span>
@@ -1167,7 +1315,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-400 text-xs">
+                  <td colSpan={8} className="text-center py-10 text-slate-400 text-xs">
                     لا يوجد طلاب مطابقون للبحث.
                   </td>
                 </tr>
@@ -1176,9 +1324,26 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   const stuGrade = (student.grade || student.gradeLevel || 'g3_primary') as GradeLevel;
                   const assignedTest = tests.find(t => t.id === student.assignedTestId) || tests[0];
                   const isCompleted = student.status === 'completed';
+                  const isSelected = selectedStudentIdsForBatch.includes(student.id);
 
                   return (
-                    <tr key={student.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-750 transition-colors">
+                    <tr key={student.id} className={`hover:bg-slate-50/80 dark:hover:bg-slate-750 transition-colors ${isSelected ? 'bg-indigo-50/40 dark:bg-indigo-950/20' : ''}`}>
+                      {/* Checkbox */}
+                      <td className="w-10 px-3 py-3.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedStudentIdsForBatch(prev => [...prev, student.id]);
+                            } else {
+                              setSelectedStudentIdsForBatch(prev => prev.filter(id => id !== student.id));
+                            }
+                          }}
+                          className="w-4 h-4 rounded text-sky-600 accent-sky-600 cursor-pointer"
+                        />
+                      </td>
+
                       {/* 1. الطالب (الاسم ورقم الهوية) */}
                       <td className="px-5 py-3.5">
                         <div className="font-bold text-slate-900 dark:text-white">
@@ -1236,6 +1401,22 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                             {isCompleted ? <RotateCcw className="w-3.5 h-3.5" /> : <PlayCircle className="w-3.5 h-3.5" />}
                             <span>{isCompleted ? 'اختباره مرة أخرى' : (assignedTest ? assignedTest.title : 'بدء الاختبار')}</span>
                           </button>
+
+                          {!isCompleted && (
+                            <button
+                              onClick={() => {
+                                setGradingStudent(student);
+                                setGradingTestId(assignedTest?.id || '');
+                                setGradingModelId(assignedTest?.models[0]?.id || '');
+                                setManualTotalScore(0);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 transition-all cursor-pointer shadow-xs"
+                              title="رصد درجة الاختبار الورقي يدوياً"
+                            >
+                              <FileSpreadsheet className="w-3.5 h-3.5" />
+                              <span>رصد ورقي</span>
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -1272,9 +1453,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
                           <button
                             onClick={() => {
-                              if (confirm(`هل أنت متأكد من حذف الطالب ${student.fullName}؟`)) {
-                                onDeleteStudent(student.id);
-                              }
+                              setStudentToDelete(student);
                             }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                             title="حذف الطالب"
@@ -2017,6 +2196,395 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
         <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white text-xs font-bold px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2 animate-in slide-in-from-bottom-5">
           <CheckCircle2 className="w-5 h-5 shrink-0" />
           <span>{feedbackToast}</span>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Student Deletion */}
+      {studentToDelete && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-sm w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="w-12 h-12 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h4 className="text-lg font-black text-slate-900 dark:text-white">حذف الطالب؟</h4>
+              <p className="text-xs text-slate-500 mt-2 font-bold">هل أنت متأكد من حذف الطالب "{studentToDelete.fullName}"؟ سيتم حذف كافة نتائجه أيضاً.</p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setStudentToDelete(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 font-bold text-sm cursor-pointer">إلغاء</button>
+              <button onClick={() => { onDeleteStudent(studentToDelete.id); setStudentToDelete(null); }} className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm transition-colors hover:bg-rose-700 cursor-pointer">حذف</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Class Deletion */}
+      {classToDelete && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="w-14 h-14 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-7 h-7" />
+            </div>
+            <div className="text-center">
+              <h4 className="text-lg font-black text-slate-900 dark:text-white">
+                حذف فصل {classToDelete.classroom} بالكامل؟
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-bold leading-relaxed">
+                هل أنت متأكد من حذف فصل "{classToDelete.classroom}" ({GRADE_LABELS[classToDelete.grade] || classToDelete.grade})؟
+                <br />
+                سيتم حذف كافة طلاب هذا الفصل ({
+                  students.filter(s => {
+                    const g = (s.grade || s.gradeLevel || 'g3_primary') as GradeLevel;
+                    return g === classToDelete.grade && (s.classroom || 'عام') === classToDelete.classroom;
+                  }).length
+                } طالباً) بشكل نهائي من السحابة.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setClassToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetStudents = students.filter(s => {
+                    const g = (s.grade || s.gradeLevel || 'g3_primary') as GradeLevel;
+                    return g === classToDelete.grade && (s.classroom || 'عام') === classToDelete.classroom;
+                  });
+                  const stuIds = targetStudents.map(s => s.id);
+                  if (onDeleteMultipleStudents && stuIds.length > 0) {
+                    onDeleteMultipleStudents(stuIds);
+                  } else {
+                    stuIds.forEach(id => onDeleteStudent(id));
+                  }
+                  setFeedbackToast(`✅ تم حذف فصل ${classToDelete.classroom} (${stuIds.length} طالباً) بنجاح.`);
+                  setTimeout(() => setFeedbackToast(null), 4000);
+                  setClassToDelete(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-md shadow-rose-600/20"
+              >
+                نعم، احذف الفصل وطلابه
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Purge / Clean Unwanted Classes Modal */}
+      {isPurgeModalOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 dark:bg-rose-950 text-rose-600 flex items-center justify-center">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-base font-black text-slate-900 dark:text-white">تنظيف وحذف الفصول غير المرغوب بها</h4>
+                  <p className="text-[11px] text-slate-500">اختر الطريقة الأنسب لحذف الفصول والطلاب الزائدين</p>
+                </div>
+              </div>
+              <button onClick={() => setIsPurgeModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Option 1: Purge Elementary Only (Keep Intermediate/Middle) */}
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-black text-xs text-amber-900 dark:text-amber-200">
+                  خيار 1: إبقاء فصول المرحلة المتوسطة فقط
+                </span>
+                <span className="text-[10px] font-bold bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-lg">
+                  الموصى به
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-700 dark:text-amber-300/80 leading-relaxed font-bold">
+                حذف كافة فصول وطلاب المرحلة الابتدائية (الصفوف 3، 4، 5، 6) بضغطة واحدة، مع الحفاظ الكامل على فصول المرحلة المتوسطة التي قمت بإضافتها أنت.
+              </p>
+              <button
+                type="button"
+                onClick={handlePurgeNonMiddleClasses}
+                className="w-full mt-2 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>حذف فصول الابتدائي الآن (إبقاء المتوسط فقط)</span>
+              </button>
+            </div>
+
+            {/* Option 2: Selectively Delete Specific Classes */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-black text-slate-800 dark:text-slate-200">
+                  خيار 2: تحديد فصول معينة لحذفها
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPurgeSelectedClassKeys(uniqueClasses.map(c => c.key))}
+                    className="text-[10px] font-bold text-sky-600 hover:underline cursor-pointer"
+                  >
+                    تحديد الكل
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setPurgeSelectedClassKeys([])}
+                    className="text-[10px] font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-40 overflow-y-auto space-y-1.5 p-1 custom-scrollbar">
+                {uniqueClasses.map(c => {
+                  const isChecked = purgeSelectedClassKeys.includes(c.key);
+                  return (
+                    <label
+                      key={c.key}
+                      className={`flex items-center justify-between p-2 rounded-xl border text-xs cursor-pointer transition-all ${
+                        isChecked
+                          ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setPurgeSelectedClassKeys(prev => [...prev, c.key]);
+                            } else {
+                              setPurgeSelectedClassKeys(prev => prev.filter(k => k !== c.key));
+                            }
+                          }}
+                          className="w-4 h-4 rounded text-rose-600 accent-rose-600 cursor-pointer"
+                        />
+                        <span className="font-bold">فصل {c.classroom} ({GRADE_LABELS[c.grade] || c.grade})</span>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-black/5 dark:bg-white/5">
+                        {c.count} طالب
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                disabled={purgeSelectedClassKeys.length === 0}
+                onClick={() => {
+                  const targetClasses = uniqueClasses.filter(c => purgeSelectedClassKeys.includes(c.key));
+                  const studentIdsToDelete = targetClasses.flatMap(c => c.studentIds);
+                  if (onDeleteMultipleStudents && studentIdsToDelete.length > 0) {
+                    onDeleteMultipleStudents(studentIdsToDelete);
+                  } else {
+                    studentIdsToDelete.forEach(id => onDeleteStudent(id));
+                  }
+                  setFeedbackToast(`🗑️ تم بنجاح حذف ${targetClasses.length} فصول (${studentIdsToDelete.length} طالباً).`);
+                  setTimeout(() => setFeedbackToast(null), 4000);
+                  setIsPurgeModalOpen(false);
+                  setPurgeSelectedClassKeys([]);
+                }}
+                className="w-full py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white font-black text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>حذف الفصول المحددة ({uniqueClasses.filter(c => purgeSelectedClassKeys.includes(c.key)).reduce((acc, c) => acc + c.count, 0)} طالب)</span>
+              </button>
+            </div>
+
+            {/* Option 3: Delete All Students */}
+            <div className="pt-2 flex items-center justify-between text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  if (students.length === 0) return;
+                  const allIds = students.map(s => s.id);
+                  if (onDeleteMultipleStudents) {
+                    onDeleteMultipleStudents(allIds);
+                  } else {
+                    allIds.forEach(id => onDeleteStudent(id));
+                  }
+                  setFeedbackToast(`🗑️ تم حذف كافة الطلاب المسجلين (${allIds.length} طالباً) بنجاح.`);
+                  setTimeout(() => setFeedbackToast(null), 4000);
+                  setIsPurgeModalOpen(false);
+                }}
+                className="text-rose-600 hover:text-rose-700 dark:text-rose-400 text-[11px] font-bold hover:underline cursor-pointer flex items-center gap-1"
+              >
+                <span>حذف جميع الطلاب وتفريغ القائمة بالكامل للبدء من جديد ({students.length} طالباً)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPurgeModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Delete Selected Students Modal */}
+      {isBatchDeleteModalOpen && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-sm w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="w-14 h-14 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-7 h-7" />
+            </div>
+            <div className="text-center">
+              <h4 className="text-lg font-black text-slate-900 dark:text-white">
+                حذف الطلاب المحددين؟
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-bold leading-relaxed">
+                هل أنت متأكد من حذف ({selectedStudentIdsForBatch.length}) طالباً تم تحديدهم من الجدول؟ سيتم حذف بياناتهم ونتائجهم نهائياً.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsBatchDeleteModalOpen(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteMultipleStudents) {
+                    onDeleteMultipleStudents(selectedStudentIdsForBatch);
+                  } else {
+                    selectedStudentIdsForBatch.forEach(id => onDeleteStudent(id));
+                  }
+                  setFeedbackToast(`✅ تم حذف ${selectedStudentIdsForBatch.length} طالباً بنجاح.`);
+                  setTimeout(() => setFeedbackToast(null), 4000);
+                  setSelectedStudentIdsForBatch([]);
+                  setIsBatchDeleteModalOpen(false);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-md shadow-rose-600/20"
+              >
+                نعم، احذفهم الآن
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Grade Entry Modal */}
+      {gradingStudent && (
+        <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-md w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950 text-amber-600 flex items-center justify-center">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-base font-black text-slate-900 dark:text-white">رصد درجة الاختبار الورقي</h4>
+                  <p className="text-[11px] text-slate-500 font-bold">{gradingStudent.fullName}</p>
+                </div>
+              </div>
+              <button onClick={() => setGradingStudent(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">الاختبار المطبق:</label>
+                <select
+                  value={gradingTestId}
+                  onChange={e => {
+                    setGradingTestId(e.target.value);
+                    const t = tests.find(test => test.id === e.target.value);
+                    if (t) setGradingModelId(t.models[0]?.id || '');
+                  }}
+                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-bold"
+                >
+                  <option value="">اختر الاختبار...</option>
+                  {tests.map(t => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              {gradingTestId && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">نموذج/كود الاختبار:</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {tests.find(t => t.id === gradingTestId)?.models.map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setGradingModelId(m.id)}
+                        className={`px-3 py-2 rounded-xl border text-[11px] font-mono font-black transition-all ${
+                          gradingModelId === m.id
+                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600'
+                        }`}
+                      >
+                        #{m.code || m.id.slice(-6).toUpperCase()} ({m.questionIds.length}س)
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-amber-900 dark:text-amber-200">الدرجة المحققة (عدد الإجابات الصحيحة):</label>
+                  <span className="text-[10px] font-bold text-amber-600">
+                    من إجمالي {gradingModelId ? (tests.find(t => t.id === gradingTestId)?.models.find(m => m.id === gradingModelId)?.questionIds.length || 0) : 0} سؤال
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="0"
+                    max={gradingModelId ? (tests.find(t => t.id === gradingTestId)?.models.find(m => m.id === gradingModelId)?.questionIds.length || 0) : 100}
+                    value={manualTotalScore}
+                    onChange={e => setManualTotalScore(parseInt(e.target.value) || 0)}
+                    className="flex-1 px-4 py-3 text-lg font-black text-center rounded-xl border border-amber-300 dark:border-amber-800 bg-white dark:bg-slate-800 text-amber-900 dark:text-amber-100"
+                  />
+                  <div className="text-xl font-black text-slate-400">/</div>
+                  <div className="flex-1 px-4 py-3 text-lg font-black text-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 text-slate-500">
+                    {gradingModelId ? (tests.find(t => t.id === gradingTestId)?.models.find(m => m.id === gradingModelId)?.questionIds.length || 0) : '-'}
+                  </div>
+                </div>
+                {gradingModelId && (
+                  <div className="text-center pt-1">
+                    <span className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                      النسبة التقريبية: {Math.round((manualTotalScore / (tests.find(t => t.id === gradingTestId)?.models.find(m => m.id === gradingModelId)?.questionIds.length || 1)) * 100)}%
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setGradingStudent(null)}
+                className="flex-1 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer hover:bg-slate-50 transition-colors"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={!gradingTestId || !gradingModelId}
+                onClick={handleManualGradeSubmit}
+                className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-black text-sm transition-all cursor-pointer shadow-lg shadow-emerald-600/20"
+              >
+                رصد وحفظ النتيجة
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

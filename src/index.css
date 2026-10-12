@@ -232,13 +232,6 @@
     border-radius: 20px;
   }
 
-  /* Layout Optimization: Small question filler */
-  .question-filler-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4mm;
-  }
-
   /* Extreme Paper Saving Layout */
   .print-compact-layout .question-print-item {
     margin-bottom: 1.5mm !important;
@@ -246,13 +239,45 @@
     border-width: 1px !important;
   }
   
-  .print-compact-layout .question-print-item img {
-    max-height: 50px !important;
+  .print-extreme-layout .question-print-item {
+    margin-bottom: 0.8mm !important;
+    padding: 2px 4px !important;
+    border-width: 1px !important;
+    font-size: 0.95em !important;
   }
-  
-  .print-compact-layout .question-print-item p {
-    margin-bottom: 0.5mm !important;
-    line-height: 1.2 !important;
+
+  .print-extreme-layout .question-print-item img {
+    max-height: 40px !important;
+  }
+
+  .print-extreme-layout .question-print-item p {
+    margin-bottom: 0.3mm !important;
+    line-height: 1.1 !important;
+  }
+
+  /* Intelligent Page Management for Double-Sided Printing */
+  .print-force-new-sheet {
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+
+  .blank-page-print {
+    page-break-before: always !important;
+    break-before: page !important;
+    height: 98vh !important;
+    display: block !important;
+  }
+
+  /* Ensure the very last student doesn't trigger a blank page */
+  #printable-test-booklet > .student-exam-booklet:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+
+  /* Helper to avoid orphaned questions at page ends */
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
 

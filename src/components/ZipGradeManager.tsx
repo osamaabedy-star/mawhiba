@@ -238,7 +238,13 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
   const modelQuestions = useMemo(() => {
     if (!selectedModel) return [];
     
-    // Detect and mark existing manual duplicates in the model (by ID or exact Text)
+    // SMART LOGIC: If the model is frozen (has a code), use its questionIds EXACTLY.
+    // This allows "Correcting Old Codes" accurately since the sequence is fixed.
+    if (selectedModel.code) {
+      return selectedModel.questionIds.map(id => questions.find(q => q.id === id)).filter(Boolean) as Question[];
+    }
+
+    // Fallback for draft models/initial state (detect and mark manual duplicates)
     const seenIds = new Set<string>();
     const seenTexts = new Set<string>();
     let processedQs = selectedModel.questionIds.map((id, index) => {
@@ -360,6 +366,7 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
   const [reportSearchTerm, setReportSearchTerm] = useState('');
   const [reportClassFilter, setReportClassFilter] = useState('all');
   const [reportNominationFilter, setReportNominationFilter] = useState('all');
+  const [reportSortBy, setReportSortBy] = useState<'percentage_desc' | 'percentage_asc' | 'name_asc' | 'id_asc' | 'class_asc'>('percentage_desc');
   const [selectedStudentForDetail, setSelectedStudentForDetail] = useState<ParsedZipGradeRow | null>(null);
 
   // Calculate Answer Key for ZipGrade
@@ -939,12 +946,12 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
     }
   };
 
-  // Comprehensive Exam Summary Metrics & Visual Chart Data
-  // Manual correction of parsed rows
+  // CSV Import State
+  const [rowToRemoveId, setRowToRemoveId] = useState<string | null>(null);
+
   const handleRemoveParsedRow = (rowId: string) => {
-    if (confirm('هل أنت متأكد من حذف هذه الصف (الطالب) من نتائج الاستيراد الحالية؟ لن يتم حذف بياناته من قاعدة البيانات، بل من هذه المعاينة فقط.')) {
-      setParsedRows(prev => prev.filter(r => r.rawRowId !== rowId));
-    }
+    setParsedRows(prev => prev.filter(r => r.rawRowId !== rowId));
+    setRowToRemoveId(null);
   };
 
   const examSummary = useMemo(() => {
@@ -2539,6 +2546,19 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
                             <option key={c} value={c}>{c}</option>
                           ))}
                         </select>
+
+                        {/* Sort Selector */}
+                        <select
+                          value={reportSortBy}
+                          onChange={e => setReportSortBy(e.target.value as any)}
+                          className="px-3 py-2 text-xs font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-800 dark:text-indigo-300"
+                        >
+                          <option value="percentage_desc">فرز: النسبة (الأعلى أولاً) ⬇</option>
+                          <option value="percentage_asc">فرز: النسبة (الأقل أولاً) ⬆</option>
+                          <option value="name_asc">فرز: اسم الطالب (أبجدياً)</option>
+                          <option value="id_asc">فرز: رقم الطالب</option>
+                          <option value="class_asc">فرز: الفصل</option>
+                        </select>
                       </div>
                     </div>
 
@@ -2548,10 +2568,10 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
                         <thead className="bg-slate-50 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 font-extrabold">
                           <tr>
                             <th className="p-3">#</th>
-                            <th className="p-3">رقم الطالب</th>
-                            <th className="p-3">اسم الطالب</th>
-                            <th className="p-3">الفصل</th>
-                            <th className="p-3">الدرجة والنسبة</th>
+                            <th className="p-3 cursor-pointer hover:text-indigo-600" onClick={() => setReportSortBy(reportSortBy === 'id_asc' ? 'percentage_desc' : 'id_asc')}>رقم الطالب ⇕</th>
+                            <th className="p-3 cursor-pointer hover:text-indigo-600" onClick={() => setReportSortBy(reportSortBy === 'name_asc' ? 'percentage_desc' : 'name_asc')}>اسم الطالب ⇕</th>
+                            <th className="p-3 cursor-pointer hover:text-indigo-600" onClick={() => setReportSortBy(reportSortBy === 'class_asc' ? 'percentage_desc' : 'class_asc')}>الفصل ⇕</th>
+                            <th className="p-3 cursor-pointer hover:text-indigo-600" onClick={() => setReportSortBy(reportSortBy === 'percentage_desc' ? 'percentage_asc' : 'percentage_desc')}>الدرجة والنسبة ⇕</th>
                             <th className="p-3">إتقان المهارات الست</th>
                             <th className="p-3">فحص العشوائية والتخمين</th>
                             <th className="p-3">قرار الترشيح والتوصية</th>
@@ -2571,6 +2591,14 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
                                 (reportNominationFilter === 'promising' && r.nominationAssessment.decisionStatus === 'promising') ||
                                 (reportNominationFilter === 'not_nominated' && r.nominationAssessment.decisionStatus === 'not_nominated');
                               return matchSearch && matchClass && matchNom;
+                            })
+                            .sort((a, b) => {
+                              if (reportSortBy === 'percentage_desc') return b.percentage - a.percentage;
+                              if (reportSortBy === 'percentage_asc') return a.percentage - b.percentage;
+                              if (reportSortBy === 'name_asc') return a.studentName.localeCompare(b.studentName, 'ar');
+                              if (reportSortBy === 'id_asc') return a.studentIdStr.localeCompare(b.studentIdStr);
+                              if (reportSortBy === 'class_asc') return a.classroom.localeCompare(b.classroom, 'ar');
+                              return 0;
                             })
                             .map((r, idx) => {
                               return (
@@ -3469,6 +3497,24 @@ export const ZipGradeManager: React.FC<ZipGradeManagerProps> = ({
           </div>
         )}
       </div>
+      {/* Row Removal Confirmation Modal */}
+      {rowToRemoveId && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-sm w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="w-12 h-12 rounded-full bg-rose-100 dark:bg-rose-950 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h4 className="text-lg font-black text-slate-900 dark:text-white">حذف الطالب من القائمة؟</h4>
+              <p className="text-xs text-slate-500 mt-2 font-bold leading-relaxed text-right">هل أنت متأكد من استبعاد هذا الطالب من عملية الاستيراد الحالية؟ (لن يتم حذفه من قاعدة البيانات).</p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setRowToRemoveId(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 font-bold text-sm">إلغاء</button>
+              <button onClick={() => handleRemoveParsedRow(rowToRemoveId)} className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-sm">تأكيد الحذف</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

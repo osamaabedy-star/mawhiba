@@ -130,6 +130,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="hidden sm:inline">الصفحة الرئيسية</span>
           </button>
 
+          {/* زر دخول الطالب بكود الاختبار */}
+          <button
+            onClick={() => setActiveTab('home')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-xl hover:bg-indigo-100 transition-all cursor-pointer shadow-xs"
+            title="الدخول المباشر باستخدام كود الاختبار الموزع"
+          >
+            <FileCheck className="w-4 h-4" />
+            <span>الدخول بكود</span>
+          </button>
+
           {/* زر دخول الطالب المباشر */}
           <button
             onClick={onLaunchStudentExam}

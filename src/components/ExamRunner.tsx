@@ -97,6 +97,7 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
   const [showManualNameEntry, setShowManualNameEntry] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualClassroom, setManualClassroom] = useState('');
+  const [retakeStudent, setRetakeStudent] = useState<Student | null>(null);
   const [showExitConfirmModal, setShowExitConfirmModal] = useState<boolean>(false);
 
   // Selected Test and Model
@@ -612,9 +613,7 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
                     key={student.id}
                     onClick={() => {
                       if (isCompleted) {
-                        if (confirm(`لقد أتم الطالب "${student.fullName}" الاختبار مسبقاً.\n\nهل ترغب في بدء إعادة الاختبار الآن؟`)) {
-                          handleDirectStartExam(student);
-                        }
+                        setRetakeStudent(student);
                       } else {
                         handleDirectStartExam(student);
                       }
@@ -646,6 +645,35 @@ export const ExamRunner: React.FC<ExamRunnerProps> = ({
             )}
           </div>
         </div>
+
+        {/* Retake Confirmation Modal */}
+        {retakeStudent && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-sm w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4 animate-in zoom-in-95">
+              <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-600 flex items-center justify-center mx-auto">
+                <RotateCcw className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <h4 className="text-lg font-black text-slate-900 dark:text-white">إعادة الاختبار؟</h4>
+                <p className="text-xs text-slate-500 mt-2 font-bold leading-relaxed">
+                  لقد أتم الطالب "{retakeStudent.fullName}" الاختبار مسبقاً. هل ترغب في بدء محاولة جديدة؟ (سيتم حذف نتيجته السابقة).
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setRetakeStudent(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 font-bold text-sm">تراجع</button>
+                <button 
+                  onClick={() => {
+                    handleDirectStartExam(retakeStudent);
+                    setRetakeStudent(null);
+                  }} 
+                  className="flex-1 py-2.5 rounded-xl bg-sky-600 text-white font-bold text-sm transition-colors hover:bg-sky-700 shadow-md shadow-sky-600/20"
+                >
+                  بدء محاولة جديدة
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

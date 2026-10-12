@@ -177,34 +177,65 @@ function sanitizeForFirestore(obj: any): any {
 }
 
 export async function saveToFirestore(collectionName: string, id: string, data: any): Promise<void> {
-  const isSupervisor = auth.currentUser?.email === 'osamaabedy@gmail.com';
-  if (!isSupervisor && collectionName !== 'submissions') return; // Students can create submissions
+  const isSupervisor = 
+    Boolean(auth.currentUser) ||
+    sessionStorage.getItem('supervisor_auth_verified') === 'true';
 
   try {
     console.log(`[FIRESTORE WRITE] Saving to ${collectionName}/${id}...`);
     await setDoc(doc(db, collectionName, id), sanitizeForFirestore(data));
     console.log(`[FIRESTORE SUCCESS] Saved ${collectionName}/${id}`);
   } catch (error) {
+    console.warn(`[FIRESTORE WRITE ERROR] ${collectionName}/${id}:`, error);
     handleFirestoreError(error, OperationType.WRITE, `${collectionName}/${id}`);
   }
 }
 
 export async function removeFromFirestore(collectionName: string, id: string): Promise<void> {
-  const isSupervisor = auth.currentUser?.email === 'osamaabedy@gmail.com';
-  if (!isSupervisor) return;
+  const isSupervisor = 
+    Boolean(auth.currentUser) ||
+    sessionStorage.getItem('supervisor_auth_verified') === 'true';
 
   try {
     console.log(`[FIRESTORE DELETE] Removing ${collectionName}/${id}...`);
     await deleteDoc(doc(db, collectionName, id));
     console.log(`[FIRESTORE SUCCESS] Deleted ${collectionName}/${id}`);
   } catch (error) {
+    console.warn(`[FIRESTORE DELETE ERROR] ${collectionName}/${id}:`, error);
     handleFirestoreError(error, OperationType.DELETE, `${collectionName}/${id}`);
   }
 }
 
+export async function removeMultipleFromFirestore(collectionName: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  
+  try {
+    console.log(`[FIRESTORE BATCH DELETE] Removing ${ids.length} docs from ${collectionName}...`);
+    // Chunk into 400
+    for (let i = 0; i < ids.length; i += 400) {
+      const chunk = ids.slice(i, i + 400);
+      const batch = writeBatch(db);
+      chunk.forEach(id => {
+        batch.delete(doc(db, collectionName, id));
+      });
+      await batch.commit();
+    }
+    console.log(`[FIRESTORE SUCCESS] Deleted ${ids.length} docs from ${collectionName}`);
+  } catch (error) {
+    console.warn(`[FIRESTORE BATCH DELETE ERROR] ${collectionName}:`, error);
+    handleFirestoreError(error, OperationType.DELETE, collectionName);
+  }
+}
+
 export async function syncDatabaseToFirestore(data: AppDatabaseState): Promise<void> {
-  const isSupervisor = auth.currentUser?.email === 'osamaabedy@gmail.com';
-  if (!isSupervisor) return;
+  const isSupervisor = 
+    auth.currentUser?.email?.toLowerCase() === 'osamaabedy@gmail.com' || 
+    sessionStorage.getItem('supervisor_auth_verified') === 'true';
+
+  if (!isSupervisor) {
+    console.warn(`[FIRESTORE SYNC] Unauthorized attempt to sync database`);
+    throw new Error('غير مصرح لك بالقيام بهذه العملية. يرجى تسجيل الدخول كمشرف.');
+  }
 
   try {
     // Note: This is a heavy operation. Use atomic updates where possible.
@@ -302,14 +333,15 @@ export async function loadDatabaseFromFirestore(): Promise<AppDatabaseState | nu
         const qData = d.data() as Question;
         return {
           ...qData,
+          id: d.id, // Enforce document ID as the source of truth for React keys
           imageUrl: fixImageUrl(qData.imageUrl),
         };
       }),
-      students: studentsSnap.docs.map(d => d.data() as Student),
+      students: studentsSnap.docs.map(d => ({ ...(d.data() as Student), id: d.id })),
       tests: testsSnap.docs
-        .map(d => d.data() as Test)
+        .map(d => ({ ...(d.data() as Test), id: d.id }))
         .filter(t => !deletedTestIds.has(t.id)),
-      submissions: submissionsSnap.docs.map(d => d.data() as ExamSubmission),
+      submissions: submissionsSnap.docs.map(d => ({ ...(d.data() as ExamSubmission), id: d.id })),
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, 'all_collections');

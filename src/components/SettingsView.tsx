@@ -474,10 +474,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (confirm('تحذير نهائي: هل أنت متأكد من رغبتك في إعادة ضبط المنصة بالكامل واستعادة البيانات الافتراضية؟')) {
-                    onResetAllData();
-                    alert('تمت إعادة تعيين البيانات بنجاح.');
-                  }
+                  onResetAllData();
                 }}
                 className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer shrink-0 flex items-center justify-center gap-2"
               >
